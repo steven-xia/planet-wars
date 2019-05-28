@@ -4,7 +4,7 @@ import math
 from PlanetWars import PlanetWars
 
 # evaluation configs
-STRUCTURAL_FACTOR = 10
+STRUCTURAL_FACTOR = 100
 SURROUNDING_FACTOR = 10
 
 EXPAND_FACTOR = 2
@@ -57,9 +57,9 @@ def get_info(pw):
 
     global MY_PLANETS_CENTER, ENEMY_PLANETS_CENTER
     MY_PLANETS_CENTER = sum(map(lambda p: p.X(), pw.MyPlanets())) / len(pw.MyPlanets()), \
-        sum(map(lambda p: p.Y(), pw.MyPlanets())) / len(pw.MyPlanets())
+                        sum(map(lambda p: p.Y(), pw.MyPlanets())) / len(pw.MyPlanets())
     ENEMY_PLANETS_CENTER = sum(map(lambda p: p.X(), pw.EnemyPlanets())) / len(pw.EnemyPlanets()), \
-        sum(map(lambda p: p.Y(), pw.EnemyPlanets())) / len(pw.EnemyPlanets())
+                           sum(map(lambda p: p.Y(), pw.EnemyPlanets())) / len(pw.EnemyPlanets())
 
     for fleet in pw.MyFleets():
         pw.GetPlanet(fleet.DestinationPlanet()).SHIPPED = True
@@ -79,7 +79,7 @@ def attack_and_expand(pw):
 
     possible_planets = filter(lambda p: not p.SHIPPED, pw.NotMyPlanets())
     sorted_planets = sorted(possible_planets, key=lambda p: score_planet(pw, p) if p.Owner() == 0 else
-                            2 * score_planet(pw, p), reverse=True)
+    2 * score_planet(pw, p), reverse=True)
     for attack_planet in sorted_planets:
         for planet in sorted(pw.MyPlanets(), key=lambda p: pw.Distance(p.PlanetID(), attack_planet.PlanetID())):
             defense_ships = attack_planet.NumShips() if attack_planet.Owner() == 0 else \
@@ -163,21 +163,54 @@ def redistribute(pw):
     for planet in pw.MyPlanets():
         for other_planet in sorted(filter(lambda p: p != planet, pw.MyPlanets()),
                                    key=lambda p: pw.Distance(planet.PlanetID(), p.PlanetID())):  # , reverse=True):
-            redistribute_distance = pw.Distance(planet.PlanetID(), other_planet.PlanetID())
+            # redistribute_distance = pw.Distance(planet.PlanetID(), other_planet.PlanetID())
             for enemy_planet in pw.EnemyPlanets():
                 # if (not planet.X() < other_planet.X() < enemy_planet.X() and
                 #         not planet.X() > other_planet.X() > enemy_planet.X()) or \
                 #         (not planet.Y() < other_planet.Y() < enemy_planet.Y() and
                 #          not planet.Y() > other_planet.Y() > enemy_planet.Y()):
                 #     break
-                if redistribute_distance >= pw.Distance(planet.PlanetID(), enemy_planet.PlanetID()) or \
-                        pw.Distance(other_planet.PlanetID(), enemy_planet.PlanetID()) >= \
-                        pw.Distance(planet.PlanetID(), enemy_planet.PlanetID()):
+                to_enemy = pw.Distance(planet.PlanetID(), enemy_planet.PlanetID())
+                if pw.Distance(planet.PlanetID(), other_planet.PlanetID()) > to_enemy or \
+                        pw.Distance(other_planet.PlanetID(), enemy_planet.PlanetID()) > to_enemy:
                     break
             else:
                 pw.IssueOrder(planet.PlanetID(), other_planet.PlanetID(), planet.NumShips())
                 planet.RemoveShips(planet.NumShips())
                 break
+
+
+def defend_possible(pw):
+    """
+    defends against a possible all-out attack from the opponent.
+    :param pw: `PlanetWars` object
+    :return: None
+    """
+
+    for my_planet in pw.MyPlanets():
+        furthest_planet = max(pw.Planets(), key=lambda p: pw.Distance(p.PlanetID(), my_planet.PlanetID()))
+        furthest_distance = pw.Distance(furthest_planet.PlanetID(), my_planet.PlanetID())
+        arriving_ships = [my_planet.GrowthRate()] * (furthest_distance + int(MAP_SIZE))
+        # pseudo_ships = {p.PlanetID(): p.NumShips() for p in pw.NeutralPlanets()}
+
+        for planet in filter(lambda p: p != my_planet, pw.MyPlanets() + pw.EnemyPlanets()):
+            owner_multiplier = -2 * planet.Owner() + 3
+            distance = pw.Distance(planet.PlanetID(), my_planet.PlanetID())
+            arriving_ships[distance - 1] += owner_multiplier * planet.NumShips()
+            for t in range(distance, len(arriving_ships)):
+                arriving_ships[t] += owner_multiplier * planet.GrowthRate()
+
+        for fleet in pw.Fleets():
+            if fleet.Owner() != pw.GetPlanet(fleet.DestinationPlanet()).Owner():
+                continue
+            owner_multiplier = -2 * fleet.Owner() + 3
+            distance = fleet.TurnsRemaining() + pw.Distance(fleet.DestinationPlanet(), my_planet.PlanetID())
+            arriving_ships[distance] += owner_multiplier * fleet.NumShips()
+
+        lowest_ships = my_planet.NumShips()
+        for t in range(len(arriving_ships)):
+            lowest_ships = min(my_planet.NumShips() + sum(arriving_ships[:t]), lowest_ships)
+        my_planet.NumShips(max(lowest_ships, 0))
 
 
 def do_turn(pw):
@@ -194,6 +227,7 @@ def do_turn(pw):
 
     # make moves
     defend(pw)
+    defend_possible(pw)
     attack_and_expand(pw)
     redistribute(pw)
 
