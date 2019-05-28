@@ -163,6 +163,9 @@ class PlanetWars:
         return int(ceil(sqrt(dx * dx + dy * dy)))
 
     def IssueOrder(self, source_planet, destination_planet, num_ships):
+        if num_ships == 0 or source_planet == destination_planet:
+            return
+
         stdout.write("%d %d %d\n" % (source_planet, destination_planet, num_ships))
         stdout.flush()
 
