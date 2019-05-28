@@ -4,7 +4,8 @@ import math
 from PlanetWars import PlanetWars
 
 # evaluation configs
-STRUCTURAL_FACTOR = 20
+STRUCTURAL_FACTOR = 10
+SURROUNDING_FACTOR = 10
 
 EXPAND_FACTOR = 2
 ATTACK_FACTOR = 1
@@ -21,16 +22,27 @@ def pythag(coord1, coord2):
     return math.ceil(math.sqrt((coord1[0] - coord2[0]) ** 2 + ((coord1[1] - coord2[1]) ** 2)))
 
 
-def score_planet(p):
+def score_planet(pw, p, number_ships=None):
     """
     Function to give a planet a score based on many factors.
+    :param pw: `PlanetWars` object
     :param p: `Planet` object
+    :param number_ships: `int` the cost of the planet in ships. Will be automatically calculated if not supplied.
     :return: `float` score of planet
     """
 
-    raw_score = 100 * p.GrowthRate() / (p.NumShips() + 1)
-    structural_score = 1 - pythag(MY_PLANETS_CENTER, (p.X(), p.Y())) / MAP_SIZE
-    return raw_score + STRUCTURAL_FACTOR * structural_score
+    if number_ships is None:
+        number_ships = p.NumShips()
+
+    raw_score = 100 * p.GrowthRate() / (number_ships + 1)
+    structural_score = 1 - (pythag(MY_PLANETS_CENTER, (p.X(), p.Y())) / MAP_SIZE)
+
+    surrounding_score = 0
+    for planet in filter(lambda _p: _p != p, pw.Planets()):
+        temp = (1 - (pw.Distance(p.PlanetID(), planet.PlanetID()) / MAP_SIZE)) ** 10
+        surrounding_score += p.GrowthRate() * temp
+
+    return raw_score + STRUCTURAL_FACTOR * structural_score + SURROUNDING_FACTOR * surrounding_score
 
 
 def get_info(pw):
@@ -59,15 +71,15 @@ def get_info(pw):
 
 def attack_and_expand(pw):
     """
-    Attack enemy planets and expand to neutral planets with all ships. This doesn't account for possible attacks from
-    the opponent.
+    Attack enemy planets and expand to neutral planets with all ships. Designed to come after `defend_possible()`
+    because this doesn't account for possible attacks from the opponent.
     :param pw: `PlanetWars` object
     :return: None
     """
 
     possible_planets = filter(lambda p: not p.SHIPPED, pw.NotMyPlanets())
-    sorted_planets = sorted(possible_planets, key=lambda p: score_planet(p) if p.Owner() == 0 else
-                            2 * score_planet(p), reverse=True)
+    sorted_planets = sorted(possible_planets, key=lambda p: score_planet(pw, p) if p.Owner() == 0 else
+                            2 * score_planet(pw, p), reverse=True)
     for attack_planet in sorted_planets:
         for planet in sorted(pw.MyPlanets(), key=lambda p: pw.Distance(p.PlanetID(), attack_planet.PlanetID())):
             defense_ships = attack_planet.NumShips() if attack_planet.Owner() == 0 else \
@@ -83,20 +95,6 @@ def attack_and_expand(pw):
         pw.IssueOrder(planet.PlanetID(), attack_planet.PlanetID(), defense_ships + 1)
         planet.RemoveShips(defense_ships + 1)
         break
-
-
-def score_defense_planet(p, defense_ships):
-    """
-    Scores a planet with the same algorithm as `score_planet()` except it takes the amount of ships that the planet
-    'costs' because this is designed to be used on defense.
-    :param p: `Planet` object
-    :param defense_ships: number of ships to calculate the score with
-    :return: `float` score of planet
-    """
-
-    raw_score = 100 * p.GrowthRate() / (defense_ships + 1)
-    structural_score = 1 - pythag(MY_PLANETS_CENTER, (p.X(), p.Y())) / MAP_SIZE
-    return raw_score + STRUCTURAL_FACTOR * structural_score
 
 
 def defend(pw):
@@ -134,7 +132,7 @@ def defend(pw):
             planet.NumShips(minimum_ships_data[0])
 
     needs_defending_planets = frozenset(map(lambda x: x[0], needs_defending))
-    needs_defending = sorted(needs_defending, key=lambda x: score_defense_planet(x[0], x[1]), reverse=True)
+    needs_defending = sorted(needs_defending, key=lambda x: score_planet(pw, x[0], x[1]), reverse=True)
     for defend_planet, defense_ships, defend_by in needs_defending:
         for planet in pw.MyPlanets():
             if pw.Distance(planet.PlanetID(), defend_planet.PlanetID()) > defend_by or \
@@ -159,6 +157,10 @@ def do_turn(pw):
     # don't go if ...
     if len(pw.MyPlanets()) == 0 or len(pw.EnemyPlanets()) == 0:
         return
+
+    # # don't go on the first turn.
+    # if len(pw.MyPlanets()) == len(pw.EnemyPlanets()) == 1 and len(pw.MyFleets()) == len(pw.EnemyFleets()) == 0:
+    #     return
 
     # get global turn info
     get_info(pw)
