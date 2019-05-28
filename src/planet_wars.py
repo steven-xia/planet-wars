@@ -202,28 +202,29 @@ class PlanetWars:
         for index, fleet in enumerate(neutral_arriving_fleets):
             try:
                 pseudo_ships[fleet.destination_planet()] -= fleet.num_ships()
-                next_fleet = neutral_arriving_fleets[index + 1]
                 if pseudo_ships[fleet.destination_planet()] < 0:
+                    next_fleet = neutral_arriving_fleets[index + 1]
                     if fleet.destination_planet() != next_fleet.destination_planet() or \
                             next_fleet.turns_remaining() > fleet.turns_remaining():
                         destination_planet = self.get_planet(fleet.destination_planet())
                         future_planets[fleet.owner() - 1][destination_planet] = (
                             fleet.turns_remaining(), abs(pseudo_ships[fleet.destination_planet()]))
                         del pseudo_ships[fleet.destination_planet()]
-                    elif fleet.destination_planet() == neutral_arriving_fleets[index + 1].destination_planet():
+                    elif fleet.destination_planet() == next_fleet.destination_planet():
                         destination_planet = self.get_planet(fleet.destination_planet())
                         if fleet.num_ships() > next_fleet.num_ships():
-                            future_planets[fleet.Owner() - 1][destination_planet] = (
+                            future_planets[fleet.owner() - 1][destination_planet] = (
                                 fleet.turns_remaining(), fleet.num_ships() - next_fleet.num_ships())
                             del pseudo_ships[fleet.destination_planet()]
                         elif fleet.num_ships() < next_fleet.num_ships():
-                            future_planets[next_fleet.Owner() - 1][destination_planet] = (
+                            future_planets[next_fleet.owner() - 1][destination_planet] = (
                                 next_fleet.turns_remaining(), next_fleet.num_ships() - fleet.num_ships())
                             del pseudo_ships[fleet.destination_planet()]
                         else:
                             pseudo_ships[fleet.destination_planet()] = 0
-                elif fleet.destination_planet() == next_fleet.destination_planet():
-                    pseudo_ships[fleet.destination_planet()] += min(fleet.num_ships(), next_fleet.num_ships())
+                elif fleet.destination_planet() == neutral_arriving_fleets[index + 1].destination_planet():
+                    pseudo_ships[fleet.destination_planet()] += min(fleet.num_ships(),
+                                                                    neutral_arriving_fleets[index + 1].num_ships())
             except IndexError:
                 destination_planet = self.get_planet(fleet.destination_planet())
                 future_planets[fleet.owner() - 1][destination_planet] = (
@@ -239,7 +240,7 @@ class PlanetWars:
         for planet in self.planets():
             my_arriving_ships = [0 for _ in range(2 * self.map_size)]
             for my_planet in self.my_planets():
-                distance = self.distance(my_planet.planet_id(), planet.planet_id())
+                distance = max(0, self.distance(my_planet.planet_id(), planet.planet_id()) - 1)
                 my_arriving_ships[distance] += my_planet.num_ships()
                 for turn in range(distance, len(my_arriving_ships)):
                     my_arriving_ships[turn] += my_planet.growth_rate()
@@ -254,13 +255,13 @@ class PlanetWars:
             for my_planet, (turns_to_take, excess_ships) in self.my_future_neutrals.items():
                 distance = turns_to_take + self.distance(my_planet.planet_id(), planet.planet_id()) - 1
                 my_arriving_ships[distance] += excess_ships
-                for turn in range(distance, len(my_arriving_ships)):
+                for turn in range(distance + 1, len(my_arriving_ships)):
                     my_arriving_ships[turn] += my_planet.growth_rate()
             planet.my_maximum_ships = my_arriving_ships
 
             enemy_arriving_ships = [0 for _ in range(2 * self.map_size)]
             for enemy_planet in self.enemy_planets():
-                distance = self.distance(enemy_planet.planet_id(), planet.planet_id())
+                distance = max(0, self.distance(enemy_planet.planet_id(), planet.planet_id()) - 1)
                 enemy_arriving_ships[distance] += enemy_planet.num_ships()
                 for turn in range(distance, len(enemy_arriving_ships)):
                     enemy_arriving_ships[turn] += enemy_planet.growth_rate()
@@ -275,7 +276,7 @@ class PlanetWars:
             for enemy_planet, (turns_to_take, excess_ships) in self.enemy_future_neutrals.items():
                 distance = turns_to_take + self.distance(enemy_planet.planet_id(), planet.planet_id()) - 1
                 enemy_arriving_ships[distance] += excess_ships
-                for turn in range(distance, len(enemy_arriving_ships)):
+                for turn in range(distance + 1, len(enemy_arriving_ships)):
                     enemy_arriving_ships[turn] += enemy_planet.growth_rate()
             planet.enemy_maximum_ships = enemy_arriving_ships
 
