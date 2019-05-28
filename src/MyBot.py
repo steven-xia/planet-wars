@@ -153,6 +153,29 @@ def defend(pw):
                     defend_planet.RemoveShips(defend_planet.NumShips())
 
 
+def redistribute(pw):
+    """
+    Redistributes ships such that they are more active... well hopefully.
+    :param pw: `PlanetWars` object
+    :return: None
+    """
+
+    for planet in pw.MyPlanets():
+        for other_planet in sorted(filter(lambda p: p != planet, pw.MyPlanets()),
+                                   key=lambda p: pw.Distance(planet.PlanetID(), p.PlanetID()), reverse=True):
+            # redistribute_distance = pw.Distance(planet.PlanetID(), other_planet.PlanetID())
+            for enemy_planet in pw.EnemyPlanets():
+                if (not planet.X() < other_planet.X() < enemy_planet.X() and
+                        not planet.X() > other_planet.X() > enemy_planet.X()) or \
+                        (not planet.Y() < other_planet.Y() < enemy_planet.Y() and
+                         not planet.Y() > other_planet.Y() > enemy_planet.Y()):
+                    break
+            else:
+                pw.IssueOrder(planet.PlanetID(), other_planet.PlanetID(), planet.NumShips())
+                planet.RemoveShips(planet.NumShips())
+                break
+
+
 def do_turn(pw):
     # don't go if ...
     if len(pw.MyPlanets()) == 0 or len(pw.EnemyPlanets()) == 0:
@@ -168,6 +191,7 @@ def do_turn(pw):
     # make moves
     defend(pw)
     attack_and_expand(pw)
+    redistribute(pw)
 
 
 def main():
