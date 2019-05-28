@@ -81,6 +81,7 @@ class PlanetWars:
         self._temporary_fleets = {}
 
         self._issued_orders = {}
+        self._distance_cache = {}
 
     def NumPlanets(self):
         return len(self._planets)
@@ -98,55 +99,25 @@ class PlanetWars:
         return self._planets
 
     def MyPlanets(self):
-        r = []
-        for p in self._planets:
-            if p.Owner() != 1:
-                continue
-            r.append(p)
-        return r
+        return list(filter(lambda p: p.Owner() == 1, self._planets))
 
     def NeutralPlanets(self):
-        r = []
-        for p in self._planets:
-            if p.Owner() != 0:
-                continue
-            r.append(p)
-        return r
+        return list(filter(lambda p: p.Owner() == 0, self._planets))
 
     def EnemyPlanets(self):
-        r = []
-        for p in self._planets:
-            if p.Owner() <= 1:
-                continue
-            r.append(p)
-        return r
+        return list(filter(lambda p: p.Owner() == 2, self._planets))
 
     def NotMyPlanets(self):
-        r = []
-        for p in self._planets:
-            if p.Owner() == 1:
-                continue
-            r.append(p)
-        return r
+        return list(filter(lambda p: p.Owner() != 1, self._planets))
 
     def Fleets(self):
         return self._fleets
 
     def MyFleets(self):
-        r = []
-        for f in self._fleets:
-            if f.Owner() != 1:
-                continue
-            r.append(f)
-        return r
+        return list(filter(lambda f: f.Owner() == 1, self._fleets))
 
     def EnemyFleets(self):
-        r = []
-        for f in self._fleets:
-            if f.Owner() <= 1:
-                continue
-            r.append(f)
-        return r
+        return list(filter(lambda f: f.Owner() == 2, self._fleets))
 
     def ToString(self):
         s = ''
@@ -160,11 +131,16 @@ class PlanetWars:
         return s
 
     def Distance(self, source_planet, destination_planet):
-        source = self._planets[source_planet]
-        destination = self._planets[destination_planet]
-        dx = source.X() - destination.X()
-        dy = source.Y() - destination.Y()
-        return int(ceil(sqrt(dx * dx + dy * dy)))
+        try:
+            return self._distance_cache[tuple(sorted((source_planet, destination_planet)))]
+        except KeyError:
+            source = self._planets[source_planet]
+            destination = self._planets[destination_planet]
+            dx = source.X() - destination.X()
+            dy = source.Y() - destination.Y()
+            distance = int(ceil(sqrt(dx * dx + dy * dy)))
+            self._distance_cache[tuple(sorted((source_planet, destination_planet)))] = distance
+            return distance
 
     def IssueOrder(self, source_planet, destination_planet, num_ships):
         if num_ships == 0 or source_planet == destination_planet:

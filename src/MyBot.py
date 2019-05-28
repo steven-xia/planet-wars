@@ -4,12 +4,12 @@ import math
 import PlanetWars
 
 # evaluation configs
-STRUCTURAL_FACTOR = 30
-SURROUNDING_FACTOR = 10
+STRUCTURAL_FACTOR = 20
+SURROUNDING_FACTOR = 0
 LATENCY_FACTOR = 0
-CENTER_FACTOR = 30
+CENTER_FACTOR = 0
 
-EXPAND_FACTOR = 2
+EXPAND_FACTOR = 1
 ATTACK_FACTOR = 1
 
 
@@ -21,7 +21,7 @@ def pythag(coord1, coord2):
     :return: `int` distance
     """
 
-    return math.ceil(math.sqrt((coord1[0] - coord2[0]) ** 2 + ((coord1[1] - coord2[1]) ** 2)))
+    return math.sqrt((coord1[0] - coord2[0]) ** 2 + ((coord1[1] - coord2[1]) ** 2))
 
 
 def get_raw_score(p, number_ships):
@@ -50,16 +50,16 @@ def score_planet(pw, p, number_ships=None):
     raw_score = 100 * get_raw_score(p, number_ships)
 
     structural_score = 1 - (pythag(MY_PLANETS_CENTER, (p.X(), p.Y())) / MAP_SIZE)
-    structural_score += pythag(ENEMY_PLANETS_CENTER, (p.X(), p.Y())) / MAP_SIZE
+    # structural_score += pythag(ENEMY_PLANETS_CENTER, (p.X(), p.Y())) / MAP_SIZE
 
     surrounding_score = 0
     for planet in filter(lambda _p: _p != p, pw.Planets()):
         temp = (1 - (pw.Distance(p.PlanetID(), planet.PlanetID()) / MAP_SIZE)) ** 10
         surrounding_score += get_raw_score(planet, planet.NumShips()) * temp
 
-    latency_score = p.latency
+    latency_score = p.latency / MAP_SIZE
 
-    center_score = pw.Distance(p.PlanetID(), 0)
+    center_score = 1 - (pw.Distance(p.PlanetID(), 0) / MAP_SIZE)
 
     score = 0
     score += raw_score
@@ -80,7 +80,7 @@ def get_info(pw):
 
     # get the size of the map
     global MAP_SIZE
-    MAP_SIZE = 2 * pythag((0, 0), (pw.GetPlanet(0).X(), pw.GetPlanet(0).Y()))
+    MAP_SIZE = 2 * math.ceil(pythag((0, 0), (pw.GetPlanet(0).X(), pw.GetPlanet(0).Y())))
 
     # get the euclidean center of my and enemy's planets
     global MY_PLANETS_CENTER, ENEMY_PLANETS_CENTER
@@ -125,7 +125,7 @@ def get_info(pw):
         planet.latency = pw.Distance(closest_enemy.PlanetID(), planet.PlanetID()) - \
             pw.Distance(closest_friend.PlanetID(), planet.PlanetID())
 
-    # global flag for if i'm dying
+    # global flag for if I'm dying
     global DYING
     DYING = False
 
@@ -260,9 +260,14 @@ def redistribute(pw):
         my_future_planets = filter(lambda p: pw.Distance(planet.PlanetID(), p.PlanetID()) >= MY_FUTURE_PLANETS[p],
                                    MY_FUTURE_PLANETS.keys())
         redistribute_planets = list(my_other_planets) + list(my_future_planets)
-        for other_planet in sorted(redistribute_planets, key=lambda p: pw.Distance(planet.PlanetID(), p.PlanetID())):
-            # redistribute_distance = pw.Distance(planet.PlanetID(), other_planet.PlanetID())
-            for enemy_planet in pw.EnemyPlanets():
+        closest_planet = min(pw.EnemyPlanets() + list(ENEMY_FUTURE_PLANETS),
+                             key=lambda p: pw.Distance(p.PlanetID(), planet.PlanetID()))
+        for other_planet in sorted(redistribute_planets, key=lambda p: pw.Distance(closest_planet.PlanetID(),
+                                                                                   p.PlanetID())):
+            redistribute_distance = pw.Distance(planet.PlanetID(), other_planet.PlanetID())
+            enemy_future_planets = filter(lambda p: redistribute_distance >= ENEMY_FUTURE_PLANETS[p] - 1,
+                                          ENEMY_FUTURE_PLANETS.keys())
+            for enemy_planet in pw.EnemyPlanets() + list(enemy_future_planets):
                 # if (not planet.X() < other_planet.X() < enemy_planet.X() and
                 #         not planet.X() > other_planet.X() > enemy_planet.X()) or \
                 #         (not planet.Y() < other_planet.Y() < enemy_planet.Y() and
@@ -309,7 +314,7 @@ def defend_possible(pw):
                 continue
             owner_multiplier = -2 * fleet.Owner() + 3
             distance = fleet.TurnsRemaining() + pw.Distance(fleet.DestinationPlanet(), my_planet.PlanetID())
-            arriving_ships[distance] += owner_multiplier * fleet.NumShips()
+            arriving_ships[distance - 1] += owner_multiplier * fleet.NumShips()
 
         lowest_ships = my_planet.NumShips()
         for t in range(len(arriving_ships)):
@@ -370,7 +375,7 @@ def do_turn(pw):
     if TURN in range(50, 2000, 10):
         redistribute(pw)
 
-    if TURN in range(150, 2000, 50):
+    if not DYING and TURN in range(150, 2000, 50) and MY_GROWTH_RATE < ENEMY_GROWTH_RATE:
         attack_planets = filter(lambda p: not p.SHIPPED and p.latency > 0, pw.NeutralPlanets())
         attack_and_expand(pw, attack_planets)
 
