@@ -3,16 +3,13 @@ import math
 # noinspection PyUnresolvedReferences
 import PlanetWars
 
-import sys
-sys.stderr = open("errors.txt", "w+")
-
 # evaluation configs
-STRUCTURAL_FACTOR = 10
-SURROUNDING_FACTOR = 30
+STRUCTURAL_FACTOR = 30
+SURROUNDING_FACTOR = 10
 LATENCY_FACTOR = 0
 CENTER_FACTOR = 30
 
-EXPAND_FACTOR = 1
+EXPAND_FACTOR = 2
 ATTACK_FACTOR = 1
 
 
@@ -81,25 +78,28 @@ def get_info(pw):
     :return: None
     """
 
+    # get the size of the map
     global MAP_SIZE
     MAP_SIZE = 2 * pythag((0, 0), (pw.GetPlanet(0).X(), pw.GetPlanet(0).Y()))
 
+    # get the euclidean center of my and enemy's planets
     global MY_PLANETS_CENTER, ENEMY_PLANETS_CENTER
     MY_PLANETS_CENTER = sum(map(lambda p: p.X(), pw.MyPlanets())) / len(pw.MyPlanets()), \
         sum(map(lambda p: p.Y(), pw.MyPlanets())) / len(pw.MyPlanets())
     ENEMY_PLANETS_CENTER = sum(map(lambda p: p.X(), pw.EnemyPlanets())) / len(pw.EnemyPlanets()), \
         sum(map(lambda p: p.Y(), pw.EnemyPlanets())) / len(pw.EnemyPlanets())
 
+    # get my and enemy's total ships
     global MY_TOTAL_SHIPS, ENEMY_TOTAL_SHIPS
     MY_TOTAL_SHIPS = sum(map(lambda x: x.NumShips(), pw.MyPlanets() + pw.MyFleets()))
     ENEMY_TOTAL_SHIPS = sum(map(lambda x: x.NumShips(), pw.EnemyPlanets() + pw.EnemyFleets()))
 
+    # get my and enemy's total growth rate
     global MY_GROWTH_RATE, ENEMY_GROWTH_RATE
     MY_GROWTH_RATE = sum(map(lambda p: p.GrowthRate(), pw.MyPlanets()))
     ENEMY_GROWTH_RATE = sum(map(lambda p: p.GrowthRate(), pw.EnemyPlanets()))
 
-    # global MY_FRONTLINE_PLANETS, ENEMY_FRONTLINE_PLANETS
-
+    # find which planets were "shipped"
     for fleet in pw.MyFleets():
         pw.GetPlanet(fleet.DestinationPlanet()).SHIPPED = True
 
@@ -107,6 +107,7 @@ def get_info(pw):
         if not hasattr(planet, "SHIPPED"):
             planet.SHIPPED = False
 
+    # find latency of planets
     if len(pw.MyPlanets()) == 1:
         pw.MyPlanets()[0].latency = 999999
     if len(pw.EnemyPlanets()) == 1:
@@ -124,8 +125,33 @@ def get_info(pw):
         planet.latency = pw.Distance(closest_enemy.PlanetID(), planet.PlanetID()) - \
             pw.Distance(closest_friend.PlanetID(), planet.PlanetID())
 
+    # global flag for if i'm dying
     global DYING
     DYING = False
+
+    # get my and enemy's future planets
+    global MY_FUTURE_PLANETS, ENEMY_FUTURE_PLANETS
+    future_planets = [{}, {}]
+
+    pseudo_ships = {p.PlanetID(): p.NumShips() for p in pw.NeutralPlanets()}
+    neutral_arriving_fleets = filter(lambda f: f.DestinationPlanet() in pseudo_ships, pw.Fleets())
+    neutral_arriving_fleets = sorted(neutral_arriving_fleets, key=lambda f: f.TurnsRemaining())
+    for index, fleet in enumerate(neutral_arriving_fleets):
+        try:
+            pseudo_ships[fleet.DestinationPlanet()] -= fleet.NumShips()
+            if pseudo_ships[fleet.DestinationPlanet()] < 0 and \
+                    neutral_arriving_fleets[index + 1].TurnsRemaining() > fleet.TurnsRemaining():
+                del pseudo_ships[fleet.DestinationPlanet()]
+                destination_planet = pw.GetPlanet(fleet.DestinationPlanet())
+                future_planets[fleet.Owner() - 1][destination_planet] = fleet.TurnsRemaining()
+        except IndexError:
+            del pseudo_ships[fleet.DestinationPlanet()]
+            destination_planet = pw.GetPlanet(fleet.DestinationPlanet())
+            future_planets[fleet.Owner() - 1][destination_planet] = fleet.TurnsRemaining()
+        except KeyError:
+            pass
+
+    MY_FUTURE_PLANETS, ENEMY_FUTURE_PLANETS = future_planets
 
 
 def attack_and_expand(pw, possible_planets=None):
@@ -230,8 +256,11 @@ def redistribute(pw):
     """
 
     for planet in pw.MyPlanets():
-        for other_planet in sorted(filter(lambda p: p != planet, pw.MyPlanets()),
-                                   key=lambda p: pw.Distance(planet.PlanetID(), p.PlanetID())):  # , reverse=True):
+        my_other_planets = filter(lambda p: p != planet, pw.MyPlanets())
+        my_future_planets = filter(lambda p: pw.Distance(planet.PlanetID(), p.PlanetID()) >= MY_FUTURE_PLANETS[p],
+                                   MY_FUTURE_PLANETS.keys())
+        redistribute_planets = list(my_other_planets) + list(my_future_planets)
+        for other_planet in sorted(redistribute_planets, key=lambda p: pw.Distance(planet.PlanetID(), p.PlanetID())):
             # redistribute_distance = pw.Distance(planet.PlanetID(), other_planet.PlanetID())
             for enemy_planet in pw.EnemyPlanets():
                 # if (not planet.X() < other_planet.X() < enemy_planet.X() and
