@@ -162,13 +162,17 @@ def redistribute(pw):
 
     for planet in pw.MyPlanets():
         for other_planet in sorted(filter(lambda p: p != planet, pw.MyPlanets()),
-                                   key=lambda p: pw.Distance(planet.PlanetID(), p.PlanetID()), reverse=True):
-            # redistribute_distance = pw.Distance(planet.PlanetID(), other_planet.PlanetID())
+                                   key=lambda p: pw.Distance(planet.PlanetID(), p.PlanetID())):  # , reverse=True):
+            redistribute_distance = pw.Distance(planet.PlanetID(), other_planet.PlanetID())
             for enemy_planet in pw.EnemyPlanets():
-                if (not planet.X() < other_planet.X() < enemy_planet.X() and
-                        not planet.X() > other_planet.X() > enemy_planet.X()) or \
-                        (not planet.Y() < other_planet.Y() < enemy_planet.Y() and
-                         not planet.Y() > other_planet.Y() > enemy_planet.Y()):
+                # if (not planet.X() < other_planet.X() < enemy_planet.X() and
+                #         not planet.X() > other_planet.X() > enemy_planet.X()) or \
+                #         (not planet.Y() < other_planet.Y() < enemy_planet.Y() and
+                #          not planet.Y() > other_planet.Y() > enemy_planet.Y()):
+                #     break
+                if redistribute_distance >= pw.Distance(planet.PlanetID(), enemy_planet.PlanetID()) or \
+                        pw.Distance(other_planet.PlanetID(), enemy_planet.PlanetID()) >= \
+                        pw.Distance(planet.PlanetID(), enemy_planet.PlanetID()):
                     break
             else:
                 pw.IssueOrder(planet.PlanetID(), other_planet.PlanetID(), planet.NumShips())
