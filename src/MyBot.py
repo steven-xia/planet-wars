@@ -70,6 +70,8 @@ def get_info(pw):
     MY_GROWTH_RATE = sum(map(lambda p: p.GrowthRate(), pw.MyPlanets()))
     ENEMY_GROWTH_RATE = sum(map(lambda p: p.GrowthRate(), pw.EnemyPlanets()))
 
+    # global MY_FRONTLINE_PLANETS, ENEMY_FRONTLINE_PLANETS
+
     for fleet in pw.MyFleets():
         pw.GetPlanet(fleet.DestinationPlanet()).SHIPPED = True
 
@@ -123,6 +125,7 @@ def attack_and_expand(pw, possible_planets=None):
 
         pw.IssueOrder(planet.PlanetID(), attack_planet.PlanetID(), defense_ships + 1)
         planet.RemoveShips(defense_ships + 1)
+        attack_planet.SHIPPED = True
         break
 
 
@@ -242,6 +245,41 @@ def defend_possible(pw):
         my_planet.NumShips(max(lowest_ships, 0))
 
 
+def attack(pw):
+    """
+    Attacks the opponent, actually cares about defenses though.
+    :param pw: `PlanetWars` object
+    :return: None
+    """
+
+    for enemy_planet in sorted(pw.EnemyPlanets(), key=lambda p: score_planet(pw, p), reverse=True):
+        furthest_planet = max(pw.Planets(), key=lambda p: pw.Distance(p.PlanetID(), enemy_planet.PlanetID()))
+        furthest_distance = pw.Distance(furthest_planet.PlanetID(), enemy_planet.PlanetID())
+        arriving_ships = [enemy_planet.GrowthRate()] * (furthest_distance + int(MAP_SIZE))
+        # pseudo_ships = {p.PlanetID(): p.NumShips() for p in pw.NeutralPlanets()}
+
+        for planet in filter(lambda p: p != enemy_planet, pw.EnemyPlanets()):
+            distance = pw.Distance(planet.PlanetID(), enemy_planet.PlanetID())
+            arriving_ships[distance - 1] += planet.NumShips()
+            for t in range(distance, len(arriving_ships)):
+                arriving_ships[t] += planet.GrowthRate()
+
+        for fleet in pw.EnemyFleets():
+            if fleet.Owner() != pw.GetPlanet(fleet.DestinationPlanet()).Owner():
+                continue
+            distance = fleet.TurnsRemaining() + pw.Distance(fleet.DestinationPlanet(), enemy_planet.PlanetID())
+            arriving_ships[distance] += fleet.NumShips()
+
+        for planet in sorted(pw.MyPlanets(), key=lambda p: pw.Distance(p.PlanetID(), enemy_planet.PlanetID())):
+            temp = enemy_planet.NumShips() + \
+                   sum(arriving_ships[:pw.Distance(planet.PlanetID(), enemy_planet.PlanetID())])
+            if planet.NumShips() > temp:
+                pw.IssueOrder(planet.PlanetID(), enemy_planet.PlanetID(), temp + 1)
+                planet.RemoveShips(temp + 1)
+                enemy_planet.SHIPPED = True
+                break
+
+
 def do_turn(pw):
     # don't go if ...
     if len(pw.MyPlanets()) == 0 or len(pw.EnemyPlanets()) == 0:
@@ -250,10 +288,14 @@ def do_turn(pw):
     # get global turn info
     get_info(pw)
 
-    # defend ...
+    # attack!!
+    attack(pw)
+
+    # defend
     if TURN < 40 or ENEMY_TOTAL_SHIPS < 2 * MY_TOTAL_SHIPS:
         defend(pw)
 
+    # defend for possible ships
     if TURN < 40 or ENEMY_TOTAL_SHIPS <= 1.2 * MY_TOTAL_SHIPS:
         defend_possible(pw)
 
