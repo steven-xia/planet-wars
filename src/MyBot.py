@@ -1,15 +1,20 @@
-import math
-
 # noinspection PyUnresolvedReferences
 import PlanetWars
+import math
+
+# import sys
+# sys.stderr = open("bot_log.txt", "w+")
+
+# game configs
+TOTAL_TURNS = 800
 
 # evaluation configs
-STRUCTURAL_FACTOR = 20
+STRUCTURAL_FACTOR = 0
 SURROUNDING_FACTOR = 0
 LATENCY_FACTOR = 0
 CENTER_FACTOR = 0
 
-EXPAND_FACTOR = 1
+TAKING_ENEMY_PLANETS = {}  # {planet.PlanetID(): turns_remaining}
 
 
 def pythag(coord1, coord2):
@@ -129,7 +134,6 @@ def get_info(pw):
     DYING = False
 
     # get my and enemy's future planets
-    global MY_FUTURE_PLANETS, ENEMY_FUTURE_PLANETS
     future_planets = [{}, {}]
 
     pseudo_ships = {p.PlanetID(): p.NumShips() for p in pw.NeutralPlanets()}
@@ -154,7 +158,31 @@ def get_info(pw):
         except KeyError:
             pass
 
+    global MY_FUTURE_PLANETS, ENEMY_FUTURE_PLANETS
     MY_FUTURE_PLANETS, ENEMY_FUTURE_PLANETS = future_planets
+
+    # check if both sides are just chilling
+    global CHILLING
+    CHILLING = False
+
+    for fleet in pw.Fleets():
+        if fleet.Owner() == 2 and pw.GetPlanet(fleet.DestinationPlanet()).Owner() != 2:
+            break
+        # if fleet.Owner() != pw.GetPlanet(fleet.DestinationPlanet()).Owner():
+        #     break
+    else:
+        CHILLING = True
+
+    # check the result on time
+    my_final_ships = sum(map(lambda p: p.NumShips(), pw.MyPlanets())) + \
+        sum(map(lambda f: f.NumShips(), pw.MyFleets())) + \
+        (TOTAL_TURNS - TURN) * sum(map(lambda p: p.GrowthRate(), pw.MyPlanets()))
+    enemy_final_ships = sum(map(lambda p: p.NumShips(), pw.EnemyPlanets())) + \
+        sum(map(lambda f: f.NumShips(), pw.EnemyFleets())) + \
+        (TOTAL_TURNS - TURN) * sum(map(lambda p: p.GrowthRate(), pw.EnemyPlanets()))
+
+    global TIME_RESULT
+    TIME_RESULT = my_final_ships - enemy_final_ships
 
 
 def turn_to_take(pw, my_planet, neutral_planet):
@@ -175,7 +203,7 @@ def turn_to_take(pw, my_planet, neutral_planet):
         return distance + ships_gain_turns
 
 
-def expand(pw, possible_planets=None):
+def expand(pw, possible_planets=None, expand_limit=99):
     """
     Expand to neutral planets with all ships. Designed to come after `defend_possible()` because this doesn't account
     for possible attacks from the opponent.
@@ -188,7 +216,7 @@ def expand(pw, possible_planets=None):
         possible_planets = filter(lambda p: not p.SHIPPED, pw.NeutralPlanets())
 
     sorted_planets = sorted(possible_planets, key=lambda p: score_planet(pw, p), reverse=True)
-    for attack_planet in sorted_planets[:3]:
+    for attack_planet in filter(lambda p: p not in ENEMY_FUTURE_PLANETS, sorted_planets[:expand_limit]):
         quickest_planet = min(pw.MyPlanets(), key=lambda p: turn_to_take(pw, p, attack_planet))
         if quickest_planet.NumShips() > attack_planet.NumShips():
             pw.IssueOrder(quickest_planet.PlanetID(), attack_planet.PlanetID(), attack_planet.NumShips() + 1)
@@ -256,6 +284,7 @@ def defend(pw):
                                          key=lambda p: pw.Distance(p.PlanetID(), defend_planet.PlanetID()))
                     pw.IssueOrder(defend_planet.PlanetID(), retreat_planet.PlanetID(), defend_planet.NumShips())
                     defend_planet.RemoveShips(defend_planet.NumShips())
+                defend_planet.dying = True
 
             global DYING
             DYING = True
@@ -272,15 +301,20 @@ def redistribute(pw):
         my_other_planets = filter(lambda p: p != planet, pw.MyPlanets())
         my_future_planets = filter(lambda p: pw.Distance(planet.PlanetID(), p.PlanetID()) >= MY_FUTURE_PLANETS[p][0],
                                    MY_FUTURE_PLANETS.keys())
-        redistribute_planets = list(my_other_planets) + list(my_future_planets)
+        future_redistribute_planets = {pw.GetPlanet(p_id): t for p_id, t in TAKING_ENEMY_PLANETS.items()
+                                       if pw.Distance(planet.PlanetID(), p_id) >= t}
+        redistribute_planets = list(my_other_planets) + list(my_future_planets) + list(future_redistribute_planets)
+        redistribute_planets = filter(lambda p: not p.dying, redistribute_planets)
         closest_planet = min(pw.EnemyPlanets() + list(ENEMY_FUTURE_PLANETS),
                              key=lambda p: pw.Distance(p.PlanetID(), planet.PlanetID()))
         for other_planet in sorted(redistribute_planets, key=lambda p: pw.Distance(closest_planet.PlanetID(),
                                                                                    p.PlanetID())):
             redistribute_distance = pw.Distance(planet.PlanetID(), other_planet.PlanetID())
-            enemy_future_planets = filter(lambda p: redistribute_distance >= ENEMY_FUTURE_PLANETS[p][0] - 1,
-                                          ENEMY_FUTURE_PLANETS.keys())
-            for enemy_planet in pw.EnemyPlanets() + list(enemy_future_planets):
+            enemy_future_planets = tuple(filter(lambda p: redistribute_distance >= ENEMY_FUTURE_PLANETS[p][0] - 1,
+                                                ENEMY_FUTURE_PLANETS.keys()))
+            enemy_keep_future_planets = filter(lambda p: p not in future_redistribute_planets,
+                                               pw.EnemyPlanets())
+            for enemy_planet in list(enemy_keep_future_planets) + list(enemy_future_planets):
                 # if (not planet.X() < other_planet.X() < enemy_planet.X() and
                 #         not planet.X() > other_planet.X() > enemy_planet.X()) or \
                 #         (not planet.Y() < other_planet.Y() < enemy_planet.Y() and
@@ -374,16 +408,83 @@ def attack(pw):
                 pw.IssueOrder(planet.PlanetID(), enemy_planet.PlanetID(), temp + 1)
                 planet.RemoveShips(temp + 1)
                 enemy_planet.SHIPPED = True
+                TAKING_ENEMY_PLANETS[enemy_planet.PlanetID()] = pw.Distance(planet.PlanetID(), enemy_planet.PlanetID())
+                break
+
+    # for taking enemy neutral planets
+    enemy_planets = ENEMY_FUTURE_PLANETS
+    for enemy_planet in sorted(filter(lambda p: not p.SHIPPED, enemy_planets),
+                               key=lambda p: score_planet(pw, p), reverse=True):
+        furthest_planet = max(pw.Planets(), key=lambda p: pw.Distance(p.PlanetID(), enemy_planet.PlanetID()))
+        furthest_distance = pw.Distance(furthest_planet.PlanetID(), enemy_planet.PlanetID())
+        arriving_ships = [enemy_planet.GrowthRate()] * (furthest_distance + int(MAP_SIZE))
+
+        for planet, (turns_to_take, excess_ships) in ENEMY_FUTURE_PLANETS.items():
+            if planet == enemy_planet:
+                continue
+            distance = turns_to_take + pw.Distance(planet.PlanetID(), enemy_planet.PlanetID())
+            arriving_ships[distance - 1] += excess_ships
+            for t in range(distance, len(arriving_ships)):
+                arriving_ships[t] += planet.GrowthRate()
+
+        for planet in filter(lambda p: p != enemy_planet, pw.EnemyPlanets()):
+            distance = pw.Distance(planet.PlanetID(), enemy_planet.PlanetID())
+            arriving_ships[distance - 1] += planet.NumShips()
+            for t in range(distance, len(arriving_ships)):
+                arriving_ships[t] += planet.GrowthRate()
+
+        for fleet in pw.EnemyFleets():
+            if pw.GetPlanet(fleet.DestinationPlanet()).Owner() == 2:
+                distance = fleet.TurnsRemaining() + pw.Distance(fleet.DestinationPlanet(), enemy_planet.PlanetID())
+                arriving_ships[distance - 1] += fleet.NumShips()
+
+        enemy_ships = enemy_planets[enemy_planet][1] - enemy_planets[enemy_planet][0] * enemy_planet.GrowthRate()
+        for planet in sorted(pw.MyPlanets(), key=lambda p: pw.Distance(p.PlanetID(), enemy_planet.PlanetID())):
+            temp = enemy_ships + \
+                   sum(arriving_ships[:pw.Distance(planet.PlanetID(), enemy_planet.PlanetID())])
+            if planet.NumShips() > temp and \
+                    enemy_planets[enemy_planet][0] < pw.Distance(planet.PlanetID(), enemy_planet.PlanetID()):
+                pw.IssueOrder(planet.PlanetID(), enemy_planet.PlanetID(), temp + 1)
+                planet.RemoveShips(temp + 1)
+                enemy_planet.SHIPPED = True
+                TAKING_ENEMY_PLANETS[enemy_planet.PlanetID()] = pw.Distance(planet.PlanetID(), enemy_planet.PlanetID())
                 break
 
 
+def simple_take(pw, take_planet):
+    for planet in sorted(pw.MyPlanets(), key=lambda p: pw.Distance(p.PlanetID(), take_planet.PlanetID())):
+        take_ships = 1 + take_planet.NumShips() + \
+                     take_planet.GrowthRate() * pw.Distance(planet.PlanetID(), take_planet.PlanetID())
+        if planet.NumShips() >= take_ships:
+            pw.IssueOrder(planet.PlanetID(), take_planet.PlanetID(), take_ships)
+            planet.RemoveShips(take_ships)
+            take_planet.SHIPPED = True
+            return True
+    else:
+        return False
+
+
 def do_turn(pw):
+    global TAKING_ENEMY_PLANETS
+    TAKING_ENEMY_PLANETS = {p_id: t - 1 for p_id, t in TAKING_ENEMY_PLANETS.items() if t > 1}
+
     # don't go if ...
     if len(pw.MyPlanets()) == 0 or len(pw.EnemyPlanets()) == 0:
         return
 
     # get global turn info
     get_info(pw)
+
+    # don't go if I'm going to win on time and too risky
+    if CHILLING and TIME_RESULT > 0 and MY_TOTAL_SHIPS < ENEMY_TOTAL_SHIPS + 1000:
+        defend_possible(pw)
+        if MY_TOTAL_SHIPS > ENEMY_TOTAL_SHIPS + 100 and TURN % 10 == 0:
+            expand(pw, expand_limit=1)
+        if MY_TOTAL_SHIPS > ENEMY_TOTAL_SHIPS + 500 and TURN % 10 == 0:
+            for planet in sorted(pw.EnemyPlanets(), key=lambda p: p.NumShips()):
+                simple_take(pw, planet)
+        redistribute(pw)
+        return
 
     # defend
     defend(pw)
@@ -394,13 +495,19 @@ def do_turn(pw):
     # redistribute
     redistribute(pw)
 
-    if not DYING and TURN in range(150, 2000, 10) and MY_GROWTH_RATE < ENEMY_GROWTH_RATE:
+    defended_possible = False
+    if CHILLING and TIME_RESULT <= 0 and TURN % 10 == 0:
+        if TIME_RESULT == 0:
+            defend_possible(pw)
+            defended_possible = True
+
         attack_planets = filter(lambda p: not p.SHIPPED and p.latency > 0, pw.NeutralPlanets())
-        expand(pw, attack_planets)
+        expand(pw, attack_planets, expand_limit=1)
 
     # defend for possible ships
-    if TURN < 40 or ENEMY_TOTAL_SHIPS <= 2 * MY_TOTAL_SHIPS:
-        defend_possible(pw)
+    if TURN < 40 or ENEMY_TOTAL_SHIPS < MY_TOTAL_SHIPS + 500:
+        if not defended_possible:
+            defend_possible(pw)
 
     # expand
     if not DYING:

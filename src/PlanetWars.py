@@ -43,6 +43,11 @@ class Planet:
         self._x = x
         self._y = y
 
+        self.actual_ships = num_ships
+        self.defend_ships = num_ships
+
+        self.dying = False
+
     def PlanetID(self):
         return self._planet_id
 
@@ -147,6 +152,14 @@ class PlanetWars:
             return
 
         key = (source_planet, destination_planet)
+
+        # for planet in self.MyPlanets():
+        #     if planet.PlanetID() in key:
+        #         continue
+        #     if self.Distance(source_planet, planet.PlanetID()) + \
+        #             self.Distance(planet.PlanetID(), destination_planet) == \
+        #             self.Distance(source_planet, destination_planet):
+        #         key = (source_planet, planet.PlanetID())
 
         try:
             self._issued_orders[key] += num_ships
