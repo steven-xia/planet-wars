@@ -4,10 +4,10 @@ import math
 from PlanetWars import PlanetWars
 
 # evaluation configs
-STRUCTURAL_FACTOR = 100
+STRUCTURAL_FACTOR = 10
 SURROUNDING_FACTOR = 10
 
-EXPAND_FACTOR = 2
+EXPAND_FACTOR = 1
 ATTACK_FACTOR = 1
 
 
@@ -36,6 +36,7 @@ def score_planet(pw, p, number_ships=None):
 
     raw_score = 100 * p.GrowthRate() / (number_ships + 1)
     structural_score = 1 - (pythag(MY_PLANETS_CENTER, (p.X(), p.Y())) / MAP_SIZE)
+    structural_score += pythag(ENEMY_PLANETS_CENTER, (p.X(), p.Y())) / MAP_SIZE
 
     surrounding_score = 0
     for planet in filter(lambda _p: _p != p, pw.Planets()):
@@ -57,9 +58,17 @@ def get_info(pw):
 
     global MY_PLANETS_CENTER, ENEMY_PLANETS_CENTER
     MY_PLANETS_CENTER = sum(map(lambda p: p.X(), pw.MyPlanets())) / len(pw.MyPlanets()), \
-                        sum(map(lambda p: p.Y(), pw.MyPlanets())) / len(pw.MyPlanets())
+        sum(map(lambda p: p.Y(), pw.MyPlanets())) / len(pw.MyPlanets())
     ENEMY_PLANETS_CENTER = sum(map(lambda p: p.X(), pw.EnemyPlanets())) / len(pw.EnemyPlanets()), \
-                           sum(map(lambda p: p.Y(), pw.EnemyPlanets())) / len(pw.EnemyPlanets())
+        sum(map(lambda p: p.Y(), pw.EnemyPlanets())) / len(pw.EnemyPlanets())
+
+    global MY_TOTAL_SHIPS, ENEMY_TOTAL_SHIPS
+    MY_TOTAL_SHIPS = sum(map(lambda x: x.NumShips(), pw.MyPlanets() + pw.MyFleets()))
+    ENEMY_TOTAL_SHIPS = sum(map(lambda x: x.NumShips(), pw.EnemyPlanets() + pw.EnemyFleets()))
+
+    global MY_GROWTH_RATE, ENEMY_GROWTH_RATE
+    MY_GROWTH_RATE = sum(map(lambda p: p.GrowthRate(), pw.MyPlanets()))
+    ENEMY_GROWTH_RATE = sum(map(lambda p: p.GrowthRate(), pw.EnemyPlanets()))
 
     for fleet in pw.MyFleets():
         pw.GetPlanet(fleet.DestinationPlanet()).SHIPPED = True
@@ -68,18 +77,38 @@ def get_info(pw):
         if not hasattr(planet, "SHIPPED"):
             planet.SHIPPED = False
 
+    if len(pw.MyPlanets()) == 1:
+        pw.MyPlanets()[0].latency = 999999
+    if len(pw.EnemyPlanets()) == 1:
+        pw.EnemyPlanets()[0].latency = 999999
 
-def attack_and_expand(pw):
+    for planet in pw.Planets():
+        if hasattr(planet, "latency"):
+            continue
+
+        closest_friend = min(filter(lambda p: p != planet, pw.MyPlanets()),
+                             key=lambda p: pw.Distance(planet.PlanetID(), p.PlanetID()))
+        closest_enemy = min(filter(lambda p: p != planet, pw.EnemyPlanets()),
+                            key=lambda p: pw.Distance(planet.PlanetID(), p.PlanetID()))
+
+        planet.latency = pw.Distance(closest_enemy.PlanetID(), planet.PlanetID()) - \
+            pw.Distance(closest_friend.PlanetID(), planet.PlanetID())
+
+
+def attack_and_expand(pw, possible_planets=None):
     """
     Attack enemy planets and expand to neutral planets with all ships. Designed to come after `defend_possible()`
     because this doesn't account for possible attacks from the opponent.
     :param pw: `PlanetWars` object
+    :param possible_planets: `list` with `Planet`s inside of planets to consider.
     :return: None
     """
 
-    possible_planets = filter(lambda p: not p.SHIPPED, pw.NotMyPlanets())
+    if possible_planets is None:
+        possible_planets = filter(lambda p: not p.SHIPPED, pw.NotMyPlanets())
+
     sorted_planets = sorted(possible_planets, key=lambda p: score_planet(pw, p) if p.Owner() == 0 else
-    2 * score_planet(pw, p), reverse=True)
+                            2 * score_planet(pw, p), reverse=True)
     for attack_planet in sorted_planets:
         for planet in sorted(pw.MyPlanets(), key=lambda p: pw.Distance(p.PlanetID(), attack_planet.PlanetID())):
             defense_ships = attack_planet.NumShips() if attack_planet.Owner() == 0 else \
@@ -218,25 +247,39 @@ def do_turn(pw):
     if len(pw.MyPlanets()) == 0 or len(pw.EnemyPlanets()) == 0:
         return
 
-    # # don't go on the first turn.
-    # if len(pw.MyPlanets()) == len(pw.EnemyPlanets()) == 1 and len(pw.MyFleets()) == len(pw.EnemyFleets()) == 0:
-    #     return
-
     # get global turn info
     get_info(pw)
 
-    # make moves
-    defend(pw)
-    defend_possible(pw)
-    attack_and_expand(pw)
+    # defend ...
+    if TURN < 40 or ENEMY_TOTAL_SHIPS < 2 * MY_TOTAL_SHIPS:
+        defend(pw)
+
+    if TURN < 40 or ENEMY_TOTAL_SHIPS <= 1.2 * MY_TOTAL_SHIPS:
+        defend_possible(pw)
+
+    # attack
+    if TURN > 20 or 2 * ENEMY_TOTAL_SHIPS < MY_TOTAL_SHIPS:
+        attack_planets = filter(lambda p: not p.SHIPPED and p.latency > 0, pw.EnemyPlanets())
+        attack_and_expand(pw, attack_planets)
+
+    # expand
+    attack_planets = filter(lambda p: not p.SHIPPED and p.latency > 0, pw.NeutralPlanets())
+    attack_and_expand(pw, attack_planets)
+
+    # redistribute
     redistribute(pw)
 
 
 def main():
+    global TURN
+    TURN = 0
+
     map_data = ''
     while True:
         current_line = input()
         if len(current_line) >= 2 and current_line.startswith("go"):
+            TURN += 1
+
             pw = PlanetWars(map_data)
             do_turn(pw)
             pw.FinishTurn()
