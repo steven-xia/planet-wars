@@ -73,10 +73,14 @@ class Planet:
 
 
 class PlanetWars:
-    def __init__(self, gameState):
+    def __init__(self):
         self._planets = []
         self._fleets = []
-        self.ParseGameState(gameState)
+
+        self._planet_id_counter = 0
+        self._temporary_fleets = {}
+
+        self._issued_orders = {}
 
     def NumPlanets(self):
         return len(self._planets)
@@ -166,8 +170,12 @@ class PlanetWars:
         if num_ships == 0 or source_planet == destination_planet:
             return
 
-        stdout.write("%d %d %d\n" % (source_planet, destination_planet, num_ships))
-        stdout.flush()
+        key = (source_planet, destination_planet)
+
+        try:
+            self._issued_orders[key] += num_ships
+        except KeyError:
+            self._issued_orders[key] = num_ships
 
     def IsAlive(self, player_id):
         for p in self._planets:
@@ -179,10 +187,7 @@ class PlanetWars:
         return False
 
     def ParseGameState(self, s):
-        self._planets = []
-        self._fleets = []
         lines = s.split("\n")
-        planet_id = 0
 
         for line in lines:
             line = line.split("#")[0]  # remove comments
@@ -191,29 +196,40 @@ class PlanetWars:
                 continue
             if tokens[0] == "P":
                 if len(tokens) != 6:
-                    return 0
-                p = Planet(planet_id,  # The ID of this planet
+                    return False
+                p = Planet(self._planet_id_counter,  # The ID of this planet
                            int(tokens[3]),  # Owner
                            int(tokens[4]),  # Num ships
                            int(tokens[5]),  # Growth rate
                            float(tokens[1]),  # X
                            float(tokens[2]))  # Y
-                planet_id += 1
+                self._planet_id_counter += 1
                 self._planets.append(p)
             elif tokens[0] == "F":
-                if len(tokens) != 7:
-                    return 0
-                f = Fleet(int(tokens[1]),  # Owner
-                          int(tokens[2]),  # Num ships
-                          int(tokens[3]),  # Source
-                          int(tokens[4]),  # Destination
-                          int(tokens[5]),  # Total trip length
-                          int(tokens[6]))  # Turns remaining
-                self._fleets.append(f)
+                if len(tokens) != 7 or int(tokens[2]) == 0:
+                    return False
+                key = (int(tokens[1]), int(tokens[4]), int(tokens[6]))
+                try:
+                    self._temporary_fleets[key][0] += int(tokens[2])
+                except KeyError:
+                    self._temporary_fleets[key] = [int(tokens[2]), int(tokens[3]), int(tokens[5])]
             else:
-                return 0
-        return 1
+                return False
+        return True
+
+    def Initialise(self):
+        for (owner, destination, turns_remaining), (num_ships, source, trip_length) in self._temporary_fleets.items():
+            f = Fleet(int(owner),  # Owner
+                      int(num_ships),  # Num ships
+                      int(source),  # Source
+                      int(destination),  # Destination
+                      int(trip_length),  # Total trip length
+                      int(turns_remaining))  # Turns remaining
+            self._fleets.append(f)
 
     def FinishTurn(self):
+        for (source_planet, destination_planet), num_ships in self._issued_orders.items():
+            stdout.write("%d %d %d\n" % (source_planet, destination_planet, num_ships))
+
         stdout.write("go\n")
         stdout.flush()
