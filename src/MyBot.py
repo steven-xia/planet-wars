@@ -1,11 +1,12 @@
 import math
 
 # noinspection PyUnresolvedReferences
-from PlanetWars import PlanetWars
+import PlanetWars
 
 # evaluation configs
 STRUCTURAL_FACTOR = 10
-SURROUNDING_FACTOR = 10
+SURROUNDING_FACTOR = 20
+LATENCY_FACTOR = 1
 
 EXPAND_FACTOR = 1
 ATTACK_FACTOR = 1
@@ -22,6 +23,17 @@ def pythag(coord1, coord2):
     return math.ceil(math.sqrt((coord1[0] - coord2[0]) ** 2 + ((coord1[1] - coord2[1]) ** 2)))
 
 
+def get_raw_score(p, number_ships):
+    """
+    Returns the score of the planet only accounting the growth rate and number of ships.
+    :param p: `Planet` object
+    :param number_ships: `int` the cost of the planet in ships
+    :return: `float` score of the planet
+    """
+
+    return p.GrowthRate() / max(number_ships, 0.01)
+
+
 def score_planet(pw, p, number_ships=None):
     """
     Function to give a planet a score based on many factors.
@@ -34,16 +46,19 @@ def score_planet(pw, p, number_ships=None):
     if number_ships is None:
         number_ships = p.NumShips()
 
-    raw_score = 100 * p.GrowthRate() / (number_ships + 1)
+    raw_score = 100 * get_raw_score(p, number_ships)
     structural_score = 1 - (pythag(MY_PLANETS_CENTER, (p.X(), p.Y())) / MAP_SIZE)
     structural_score += pythag(ENEMY_PLANETS_CENTER, (p.X(), p.Y())) / MAP_SIZE
 
     surrounding_score = 0
     for planet in filter(lambda _p: _p != p, pw.Planets()):
         temp = (1 - (pw.Distance(p.PlanetID(), planet.PlanetID()) / MAP_SIZE)) ** 10
-        surrounding_score += p.GrowthRate() * temp
+        surrounding_score += get_raw_score(planet, planet.NumShips()) * temp
 
-    return raw_score + STRUCTURAL_FACTOR * structural_score + SURROUNDING_FACTOR * surrounding_score
+    latency_score = p.latency
+
+    return raw_score + STRUCTURAL_FACTOR * structural_score + SURROUNDING_FACTOR * surrounding_score + \
+        LATENCY_FACTOR * latency_score
 
 
 def get_info(pw):
@@ -82,7 +97,7 @@ def get_info(pw):
     if len(pw.MyPlanets()) == 1:
         pw.MyPlanets()[0].latency = 999999
     if len(pw.EnemyPlanets()) == 1:
-        pw.EnemyPlanets()[0].latency = 999999
+        pw.EnemyPlanets()[0].latency = -999999
 
     for planet in pw.Planets():
         if hasattr(planet, "latency"):
@@ -126,7 +141,6 @@ def attack_and_expand(pw, possible_planets=None):
         pw.IssueOrder(planet.PlanetID(), attack_planet.PlanetID(), defense_ships + 1)
         planet.RemoveShips(defense_ships + 1)
         attack_planet.SHIPPED = True
-        break
 
 
 def defend(pw):
@@ -142,6 +156,7 @@ def defend(pw):
         arriving_fleets = filter(lambda f: f.DestinationPlanet() == planet_id, pw.Fleets())
         sorted_fleets = sorted(arriving_fleets, key=lambda f: f.TurnsRemaining())
 
+        first_oof = False
         minimum_ships_data = [planet.NumShips(), 0]
         cache_data = [planet.NumShips(), 0]  # (number of ships, turns past)
         for index, fleet in enumerate(sorted_fleets):
@@ -157,15 +172,18 @@ def defend(pw):
                 # first part is `True`. The second part is also the only part that can cause an `IndexError` therefore,
                 # we do not need to check if the first condition is `True` again.
                 minimum_ships_data = cache_data[:]
+            finally:
+                if cache_data[0] < 0 and not first_oof:
+                    first_oof = fleet.TurnsRemaining()
 
         if minimum_ships_data[0] < 0:
-            needs_defending.append((planet, abs(minimum_ships_data[0]), minimum_ships_data[1]))
+            needs_defending.append((planet, abs(minimum_ships_data[0]), minimum_ships_data[1], first_oof))
         else:
             planet.NumShips(minimum_ships_data[0])
 
     needs_defending_planets = frozenset(map(lambda x: x[0], needs_defending))
     needs_defending = sorted(needs_defending, key=lambda x: score_planet(pw, x[0], x[1]), reverse=True)
-    for defend_planet, defense_ships, defend_by in needs_defending:
+    for defend_planet, defense_ships, defend_by, first_oof in needs_defending:
         for planet in pw.MyPlanets():
             if pw.Distance(planet.PlanetID(), defend_planet.PlanetID()) > defend_by or \
                     planet.NumShips() < defense_ships or \
@@ -176,7 +194,7 @@ def defend(pw):
             defend_planet.NumShips(0)
             break
         else:
-            if defend_by == 1:
+            if first_oof == 1:
                 not_death_planets = tuple(filter(lambda p: p not in needs_defending_planets, pw.MyPlanets()))
                 if len(not_death_planets) > 0:
                     retreat_planet = min(not_death_planets,
@@ -295,6 +313,10 @@ def do_turn(pw):
     if TURN < 40 or ENEMY_TOTAL_SHIPS < 2 * MY_TOTAL_SHIPS:
         defend(pw)
 
+    if TURN in range(150, 2000, 50):
+        attack_planets = filter(lambda p: not p.SHIPPED and p.latency > 0, pw.NeutralPlanets())
+        attack_and_expand(pw, attack_planets)
+
     # defend for possible ships
     if TURN < 40 or ENEMY_TOTAL_SHIPS <= 1.2 * MY_TOTAL_SHIPS:
         defend_possible(pw)
@@ -322,7 +344,7 @@ def main():
         if len(current_line) >= 2 and current_line.startswith("go"):
             TURN += 1
 
-            pw = PlanetWars(map_data)
+            pw = PlanetWars.PlanetWars(map_data)
             do_turn(pw)
             pw.FinishTurn()
             map_data = ''
