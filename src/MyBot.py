@@ -399,16 +399,16 @@ def do_turn(pw):
     # redistribute
     redistribute(pw)
 
-    # trade down
-    if pw.chilling and pw.my_total_ships > pw.enemy_total_ships + 1000:
-        for planet in sorted(filter(lambda p: not p.SHIPPED, pw.enemy_planets()), key=lambda p: p.num_ships()):
-            simple_take(pw, planet)
-
     # expand (if safe)
     if not DYING and pw.time_result <= sum(map(lambda p: p.growth_rate(), pw.neutral_planets())):
         defend_possible(pw)
         expand(pw)
         redistribute(pw)
+
+    # trade down
+    if pw.chilling and pw.my_total_ships > pw.enemy_total_ships + 1000:
+        for planet in sorted(filter(lambda p: not p.SHIPPED, pw.enemy_planets()), key=lambda p: p.num_ships()):
+            simple_take(pw, planet)
 
 
 def main():

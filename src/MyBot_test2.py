@@ -11,6 +11,12 @@ Todo long term:
   - Don't expand if front line planet is not defending possible.
   - Try to stir up complications when losing on time.
   - Only expand to a planet if defensible.
+
+normal:
+less cautious:
+cause havoc:
+less cautious + cause havoc: 3315
+less cautious + cautious cause havoc:
 """
 
 from __future__ import division
@@ -153,20 +159,6 @@ def turn_to_take(pw, my_planet, neutral_planet):
         return distance + ships_gain_turns
 
 
-def return_ships(pw, neutral_planet):
-    """
-    Finds the return of the neutral investment.
-    :param pw: `PlanetWars` object
-    :param neutral_planet: `Planet` object
-    :return: `int` total return
-    """
-
-    quickest_planet = min(pw.my_planets(), key=lambda p: turn_to_take(pw, p, neutral_planet))
-    until_take = turn_to_take(pw, quickest_planet, neutral_planet)
-    # return neutral_planet.growth_rate() * (pw.map_size - until_take) - neutral_planet.num_ships()
-    return neutral_planet.growth_rate() * (planet_wars.TOTAL_TURNS - pw.turn - until_take) - neutral_planet.num_ships()
-
-
 def expand(pw, expand_limit=99, possible_planets=None):
     """
     Expand to neutral planets with all ships. Designed to come after `defend_possible()` because this doesn't account
@@ -179,8 +171,7 @@ def expand(pw, expand_limit=99, possible_planets=None):
 
     if possible_planets is None:
         possible_planets = filter(lambda p: not p.SHIPPED and p.latency > 0, pw.neutral_planets())
-    # sorted_planets = sorted(possible_planets, key=lambda p: score_planet(pw, p) / (p.num_ships() + 1), reverse=True)
-    sorted_planets = sorted(possible_planets, key=lambda p: return_ships(pw, p), reverse=True)
+    sorted_planets = sorted(possible_planets, key=lambda p: score_planet(pw, p) / (p.num_ships() + 1), reverse=True)
 
     for attack_planet in filter(lambda p: p not in pw.enemy_future_neutrals, sorted_planets[:expand_limit]):
         quickest_planet = min(pw.my_planets(), key=lambda p: turn_to_take(pw, p, attack_planet))
@@ -323,7 +314,9 @@ def defend_possible(pw):
 
     for my_planet in pw.my_planets():
         lowest_ships = my_planet.num_ships()
-        for turn in range(1, pw.map_size):
+        # for turn in range(1, pw.map_size):
+        # attempt: less cautious
+        for turn in range(1, round(pw.map_size / 2)):
             lowest_ships = min(sum(my_planet.my_maximum_ships[:turn]) - sum(my_planet.enemy_maximum_ships[:turn]),
                                lowest_ships)
         my_planet.num_ships(max(lowest_ships, 0))
@@ -382,8 +375,9 @@ def simple_take(pw, take_planet):
 def cause_havoc(pw):
     global HAVOC_PLANET
 
-    # check if losing
-    if pw.chilling and HAVOC_PLANET[0] is None and (pw.time_result <= 0 or not COMPETITION_MODE):
+    # attempt: cautious cause havoc
+    # if pw.peaceful and HAVOC_PLANET[0] is None and (pw.time_result <= 0 or not COMPETITION_MODE):
+    if pw.peaceful and HAVOC_PLANET[0] is None:
         for planet in sorted(pw.enemy_planets(), key=lambda p: score_planet(pw, p), reverse=True):
             for t in range(round(pw.map_size / 2)):
                 if sum(planet.my_maximum_ships[:t]) > sum(planet.enemy_maximum_ships[:t]):
@@ -415,7 +409,7 @@ def do_turn(pw):
     # get global turn info
     get_info(pw)
 
-    # cause havoc if losing on time.
+    # attempt: cause havoc
     cause_havoc(pw)
 
     # competition_mode ;)

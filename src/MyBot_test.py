@@ -11,6 +11,12 @@ Todo long term:
   - Don't expand if front line planet is not defending possible.
   - Try to stir up complications when losing on time.
   - Only expand to a planet if defensible.
+
+normal:
+cause havoc:
+less cautious:
+less cautious + cause havoc: 3315
+less cautious + cautious cause havoc: 3325
 """
 
 from __future__ import division
@@ -26,7 +32,7 @@ import planet_wars
 import math
 
 # game configs
-COMPETITION_MODE = False
+COMPETITION_MODE = True
 
 # evaluation configs
 STRUCTURAL_FACTOR = 0
@@ -276,11 +282,6 @@ def redistribute(pw):
                              key=lambda p: pw.distance(p.planet_id(), planet.planet_id(), raw=True))
         for other_planet in sorted(redistribute_planets, key=lambda p: pw.distance(closest_planet.planet_id(),
                                                                                    p.planet_id(), raw=True)):
-            # attempt: fix redistribute
-            if pw.distance(planet.planet_id(), closest_planet.planet_id()) <= \
-                    pw.distance(other_planet.planet_id(), closest_planet.planet_id()):
-                break
-
             redistribute_distance = pw.distance(planet.planet_id(), other_planet.planet_id(), raw=True)
             enemy_future_planets = tuple(filter(lambda p: redistribute_distance >= pw.enemy_future_neutrals[p][0] - 1,
                                                 pw.enemy_future_neutrals.keys()))
@@ -313,6 +314,8 @@ def defend_possible(pw):
 
     for my_planet in pw.my_planets():
         lowest_ships = my_planet.num_ships()
+        # for turn in range(1, pw.map_size):
+        # attempt: less cautious
         for turn in range(1, round(pw.map_size / 2)):
             lowest_ships = min(sum(my_planet.my_maximum_ships[:turn]) - sum(my_planet.enemy_maximum_ships[:turn]),
                                lowest_ships)
@@ -375,7 +378,7 @@ def cause_havoc(pw):
     if pw.peaceful and HAVOC_PLANET[0] is None and (pw.time_result <= 0 or not COMPETITION_MODE):
         for planet in sorted(pw.enemy_planets(), key=lambda p: score_planet(pw, p), reverse=True):
             for t in range(round(pw.map_size / 2)):
-                if sum(planet.my_maximum_ships[:t]) > sum(planet.enemy_maximum_ships[:t + 1]):
+                if sum(planet.my_maximum_ships[:t]) > sum(planet.enemy_maximum_ships[:t]):
                     HAVOC_PLANET = [planet.planet_id(), t + 1]
                     TAKING_ENEMY_PLANETS[planet.planet_id()] = t + 1
                     break
@@ -404,8 +407,8 @@ def do_turn(pw):
     # get global turn info
     get_info(pw)
 
-    # cause havoc if losing on time.
-    cause_havoc(pw)
+    # attempt: cause havoc
+    # cause_havoc(pw)
 
     # competition_mode ;)
     if COMPETITION_MODE and pw.chilling and pw.time_result > 0:
@@ -432,25 +435,11 @@ def do_turn(pw):
     # redistribute
     redistribute(pw)
 
-    # attempt: expand (if losing)
-    if pw.turn > planet_wars.TOTAL_TURNS / 2 and \
-            pw.chilling and pw.time_result <= sum(map(lambda p: p.growth_rate(), pw.neutral_planets())) and \
-            tuple(filter(lambda f: pw.get_planet(f.destination_planet()).owner() == 0, pw.my_fleets())) == ():
-        for l in range(pw.map_size):
-            expand(pw, expand_limit=1, possible_planets=filter(lambda p: p.latency > -l, pw.neutral_planets()))
-            for planet in pw.neutral_planets():
-                if planet.SHIPPED:
-                    break
-            else:
-                continue
-            break
-
     # expand (if safe)
     if not DYING and pw.time_result <= sum(map(lambda p: p.growth_rate(), pw.neutral_planets())):
         defend_possible(pw)
         expand(pw)
-
-    redistribute(pw)
+        redistribute(pw)
 
     # trade down
     if pw.chilling and pw.my_total_ships > pw.enemy_total_ships + 1000:
