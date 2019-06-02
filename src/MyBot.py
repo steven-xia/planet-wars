@@ -11,6 +11,8 @@ Todo long term:
   - Don't expand if front line planet is not defending possible.
   - Try to stir up complications when losing on time.
   - Only expand to a planet if defensible.
+
+current: 3326.98
 """
 
 from __future__ import division
@@ -25,6 +27,8 @@ except NameError:
 import planet_wars
 import math
 
+__version__ = "0.7.1"
+
 # game configs
 COMPETITION_MODE = True
 
@@ -35,6 +39,7 @@ LATENCY_FACTOR = 0
 CENTER_FACTOR = 0
 
 TAKING_ENEMY_PLANETS = {}  # {planet.planet_id(): turns_remaining}
+HAVOC_PLANET = [None, 0]  # [planet.planet_id(), turns_to_attack]
 
 
 def pythag(coord1, coord2):
@@ -363,9 +368,33 @@ def simple_take(pw, take_planet):
         return False
 
 
+def cause_havoc(pw):
+    global HAVOC_PLANET
+
+    if pw.peaceful and HAVOC_PLANET[0] is None and (pw.time_result <= 0 or not COMPETITION_MODE):
+        for planet in sorted(pw.enemy_planets(), key=lambda p: score_planet(pw, p), reverse=True):
+            for t in range(round(pw.map_size / 2)):
+                if sum(planet.my_maximum_ships[:t]) > sum(planet.enemy_maximum_ships[:t]):
+                    HAVOC_PLANET = [planet.planet_id(), t + 1]
+                    TAKING_ENEMY_PLANETS[planet.planet_id()] = t + 1
+                    break
+            if HAVOC_PLANET[0] is not None:
+                break
+
+    if HAVOC_PLANET[0] is not None:
+        for planet in filter(lambda p: pw.distance(p.planet_id(), HAVOC_PLANET[0]) == HAVOC_PLANET[1], pw.my_planets()):
+            pw.issue_order(planet.planet_id(), HAVOC_PLANET[0], planet.num_ships())
+            planet.remove_ships(planet.num_ships())
+        for planet in filter(lambda p: pw.distance(p.planet_id(), HAVOC_PLANET[0]) < HAVOC_PLANET[1], pw.my_planets()):
+            planet.num_ships(0)
+
+
 def do_turn(pw):
     global TAKING_ENEMY_PLANETS
     TAKING_ENEMY_PLANETS = {p_id: t - 1 for p_id, t in TAKING_ENEMY_PLANETS.items() if t > 1}
+
+    global HAVOC_PLANET
+    HAVOC_PLANET = [HAVOC_PLANET[0], HAVOC_PLANET[1] - 1] if HAVOC_PLANET[1] > 0 else [None, 0]
 
     # don't go if ...
     if len(pw.my_planets()) == 0 or len(pw.enemy_planets()) == 0:
@@ -389,6 +418,9 @@ def do_turn(pw):
                 simple_take(pw, planet)
         redistribute(pw)
         return
+
+    # cause havoc!
+    cause_havoc(pw)
 
     # defend
     defend(pw)
