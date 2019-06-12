@@ -1,9 +1,7 @@
 """
 Todo:
-  - Prevent redistribution on expanding planet.
   - Calculate taking enemy planets every turn using the `attack()` formula.
   - Experiment with horizon in `defend_possible()`.
-  - Experiment with horizon in `expand(pw).
 
 Todo long term:
   - Don't give up a valuable planet(s) for attacking a single planet.
@@ -11,8 +9,11 @@ Todo long term:
   - Don't expand if front line planet is not defending possible.
   - Try to stir up complications when losing on time.
   - Only expand to a planet if defensible.
+  - Defend an expand planet.
+  - Score moves and execute based on score.
+  - Implement minimax search.
 
-current: 3326.98
+current: 3367.78
 """
 
 from __future__ import division
@@ -27,7 +28,7 @@ except NameError:
 import planet_wars
 import math
 
-__version__ = "0.7.1"
+__version__ = "0.7.2"
 
 # game configs
 COMPETITION_MODE = True
@@ -71,7 +72,7 @@ def score_planet(pw, p):
     :return: `float` score of planet
     """
 
-    raw_score = 100 * get_raw_score(p)
+    raw_score = get_raw_score(p)
 
     structural_score = 1 - (pythag(MY_PLANETS_CENTER, (p.x(), p.y())) / pw.map_size)
 
@@ -157,6 +158,12 @@ def turn_to_take(pw, my_planet, neutral_planet):
         return distance + ships_gain_turns
 
 
+def return_ships(pw, planet):
+    quickest_planet = min(pw.my_planets(), key=lambda p: turn_to_take(pw, p, planet))
+    quickest_turns = turn_to_take(pw, quickest_planet, planet)
+    return planet.growth_rate() * (planet_wars.TOTAL_TURNS - pw.turn - quickest_turns)
+
+
 def expand(pw, expand_limit=99, possible_planets=None):
     """
     Expand to neutral planets with all ships. Designed to come after `defend_possible()` because this doesn't account
@@ -169,7 +176,7 @@ def expand(pw, expand_limit=99, possible_planets=None):
 
     if possible_planets is None:
         possible_planets = filter(lambda p: not p.SHIPPED and p.latency > 0, pw.neutral_planets())
-    sorted_planets = sorted(possible_planets, key=lambda p: score_planet(pw, p) / (p.num_ships() + 1), reverse=True)
+    sorted_planets = sorted(possible_planets, key=lambda p: return_ships(pw, p) / (p.num_ships() + 1), reverse=True)
 
     for attack_planet in filter(lambda p: p not in pw.enemy_future_neutrals, sorted_planets[:expand_limit]):
         quickest_planet = min(pw.my_planets(), key=lambda p: turn_to_take(pw, p, attack_planet))
@@ -280,6 +287,10 @@ def redistribute(pw):
                              key=lambda p: pw.distance(p.planet_id(), planet.planet_id(), raw=True))
         for other_planet in sorted(redistribute_planets, key=lambda p: pw.distance(closest_planet.planet_id(),
                                                                                    p.planet_id(), raw=True)):
+            if pw.distance(planet.planet_id(), closest_planet.planet_id(), raw=True) <= \
+                    pw.distance(other_planet.planet_id(), closest_planet.planet_id(), raw=True):
+                break
+
             redistribute_distance = pw.distance(planet.planet_id(), other_planet.planet_id(), raw=True)
             enemy_future_planets = tuple(filter(lambda p: redistribute_distance >= pw.enemy_future_neutrals[p][0] - 1,
                                                 pw.enemy_future_neutrals.keys()))
@@ -325,7 +336,7 @@ def attack(pw):
     :return: None
     """
 
-    enemy_planets = filter(lambda p: not p.SHIPPED, pw.enemy_planets())
+    enemy_planets = filter(lambda p: p.planet_id() not in TAKING_ENEMY_PLANETS, pw.enemy_planets())
     for enemy_planet in sorted(enemy_planets, key=lambda p: score_planet(pw, p), reverse=True):
         for my_planet in sorted(pw.my_planets(), key=lambda p: pw.distance(p.planet_id(), enemy_planet.planet_id())):
             needed_ships = sum(enemy_planet.enemy_maximum_ships[:pw.distance(
@@ -340,7 +351,7 @@ def attack(pw):
 
     # for taking enemy neutral planets
     enemy_planets = pw.enemy_future_neutrals
-    for enemy_planet in sorted(filter(lambda p: not p.SHIPPED, enemy_planets),
+    for enemy_planet in sorted(filter(lambda p: p.planet_id() not in TAKING_ENEMY_PLANETS, enemy_planets),
                                key=lambda p: score_planet(pw, p), reverse=True):
         for my_planet in sorted(pw.my_planets(), key=lambda p: pw.distance(p.planet_id(), enemy_planet.planet_id())):
             needed_ships = sum(enemy_planet.enemy_maximum_ships[:pw.distance(
@@ -372,11 +383,12 @@ def cause_havoc(pw):
     global HAVOC_PLANET
 
     if pw.peaceful and HAVOC_PLANET[0] is None and (pw.time_result <= 0 or not COMPETITION_MODE):
-        for planet in sorted(pw.enemy_planets(), key=lambda p: score_planet(pw, p), reverse=True):
+        for planet in sorted(filter(lambda p: p.planet_id() not in TAKING_ENEMY_PLANETS, pw.enemy_planets()),
+                             key=lambda p: score_planet(pw, p), reverse=True):
             for t in range(round(pw.map_size / 2)):
                 if sum(planet.my_maximum_ships[:t]) > sum(planet.enemy_maximum_ships[:t]):
-                    HAVOC_PLANET = [planet.planet_id(), t + 1]
-                    TAKING_ENEMY_PLANETS[planet.planet_id()] = t + 1
+                    HAVOC_PLANET = [planet.planet_id(), t]
+                    TAKING_ENEMY_PLANETS[planet.planet_id()] = t
                     break
             if HAVOC_PLANET[0] is not None:
                 break
@@ -408,17 +420,6 @@ def do_turn(pw):
         redistribute(pw)
         return
 
-    # don't go if I'm going to win on time and too risky
-    if pw.chilling and pw.time_result > 0 and pw.my_total_ships < pw.enemy_total_ships + 1000:
-        if pw.my_total_ships > pw.enemy_total_ships + 100 and \
-                tuple(filter(lambda f: pw.get_planet(f.destination_planet()).owner() == 0, pw.my_fleets())) == ():
-            expand(pw, expand_limit=1)
-        if pw.my_total_ships > pw.enemy_total_ships + 500:
-            for planet in sorted(filter(lambda p: not p.SHIPPED, pw.enemy_planets()), key=lambda p: p.num_ships()):
-                simple_take(pw, planet)
-        redistribute(pw)
-        return
-
     # cause havoc!
     cause_havoc(pw)
 
@@ -428,14 +429,27 @@ def do_turn(pw):
     # attack!!
     attack(pw)
 
-    # redistribute
+    # first redistribute
     redistribute(pw)
+
+    # expand (if losing)
+    if pw.turn > pw.map_size and pw.chilling and \
+            pw.time_result <= sum(map(lambda p: p.growth_rate(), pw.neutral_planets())):
+        for l in range(pw.map_size):
+            expand(pw, expand_limit=1, possible_planets=filter(lambda p: p.latency > -l, pw.neutral_planets()))
+            for planet in pw.neutral_planets():
+                if planet.SHIPPED:
+                    break
+            else:
+                continue
+            break
 
     # expand (if safe)
     if not DYING and pw.time_result <= sum(map(lambda p: p.growth_rate(), pw.neutral_planets())):
         defend_possible(pw)
         expand(pw)
-        redistribute(pw)
+
+    redistribute(pw)
 
     # trade down
     if pw.chilling and pw.my_total_ships > pw.enemy_total_ships + 1000:
