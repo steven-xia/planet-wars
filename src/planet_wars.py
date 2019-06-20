@@ -7,6 +7,8 @@ import utils
 
 TOTAL_TURNS = 200
 
+INFINITY = 1 << 32  # just for utility purposes
+
 
 class Fleet:
     def __init__(self, owner, num_ships, source_planet, destination_planet,
@@ -281,6 +283,67 @@ class PlanetWars:
                     enemy_arriving_ships[turn] += enemy_planet.growth_rate()
             planet.enemy_maximum_ships = enemy_arriving_ships
 
+    def _get_arriving_ships(self):
+        for planet in self.planets():
+            my_arriving_ships = [0 for _ in range(self.map_size)]
+            for my_fleet in filter(lambda f: f.destination_planet() == planet.planet_id(), self.my_fleets()):
+                my_arriving_ships[my_fleet.turns_remaining() - 1] += my_fleet.num_ships()
+            planet.my_arriving_ships = my_arriving_ships
+
+            enemy_arriving_ships = [0 for _ in range(self.map_size)]
+            for enemy_fleet in filter(lambda f: f.destination_planet() == planet.planet_id(), self.enemy_fleets()):
+                enemy_arriving_ships[enemy_fleet.turns_remaining() - 1] += enemy_fleet.num_ships()
+            planet.enemy_arriving_ships = enemy_arriving_ships
+
+    def _get_future_exchanges(self):
+        my_future_planets = {}
+        for planet in self.enemy_planets():
+            for t in range(1, self.map_size):
+                if sum(planet.my_arriving_ships[:t]) > sum(planet.enemy_maximum_ships[:t]):
+                    my_future_planets[planet] = t
+        for planet, (turns, excess) in self.enemy_future_neutrals.items():
+            for t in range(1, self.map_size):
+                if sum(planet.my_arriving_ships[turns:t]) > sum(planet.enemy_maximum_ships[:t]):
+                    my_future_planets[planet] = t
+        self.my_future_planets = my_future_planets
+
+        enemy_future_planets = {}
+        for planet in self.my_planets():
+            for t in range(1, self.map_size):
+                if sum(planet.enemy_arriving_ships[:t]) > sum(planet.my_maximum_ships[:t]):
+                    enemy_future_planets[planet] = t
+        for planet, (turns, excess) in self.my_future_neutrals.items():
+            for t in range(1, self.map_size):
+                if sum(planet.enemy_arriving_ships[turns:t]) > sum(planet.my_maximum_ships[:t]):
+                    enemy_future_planets[planet] = t
+        self.enemy_future_planets = enemy_future_planets
+
+    def _get_latencies(self):
+        my_planets = {p: 0 for p in self.my_planets()}
+        my_planets.update({k: v[0] for k, v in self.my_future_neutrals.items()})
+        my_planets.update(self.my_future_planets)
+
+        enemy_planets = {p: 0 for p in self.enemy_planets()}
+        enemy_planets.update({k: v[0] for k, v in self.enemy_future_neutrals.items()})
+        enemy_planets.update(self.enemy_future_planets)
+
+        if my_planets == {} and enemy_planets == {}:
+            for planet in self.planets():
+                planet.latency = 0
+        elif my_planets == {}:
+            for planet in self.planets():
+                planet.latency = -INFINITY
+        elif enemy_planets == {}:
+            for planet in self.planets():
+                planet.latency = INFINITY
+        else:
+            for planet in self.planets():
+                my_closest = min(map(lambda kv: self.distance(planet.planet_id(), kv[0].planet_id()) + kv[1],
+                                     my_planets.items()))
+                enemy_closest = min(map(lambda kv: self.distance(planet.planet_id(), kv[0].planet_id()) + kv[1],
+                                        enemy_planets.items()))
+                planet.latency = enemy_closest - my_closest
+
     def _get_info(self):
         self.turns_remaining = (TOTAL_TURNS - PlanetWars.turn)
         self.map_size = 2 * math.ceil(utils.distance(0, 0, self._planets[0].x(), self._planets[0].y()))
@@ -292,6 +355,9 @@ class PlanetWars:
 
         self._get_future_neutrals()
         self._get_maximum_ships()
+        self._get_arriving_ships()
+        self._get_future_exchanges()
+        self._get_latencies()
 
         my_final_ships = self.my_total_ships + self.turns_remaining * self.my_growth_rate + \
             sum(e + (self.turns_remaining - t) * p.growth_rate() - p.num_ships()
@@ -335,4 +401,3 @@ class PlanetWars:
 
         sys.stdout.write("go\n")
         sys.stdout.flush()
-

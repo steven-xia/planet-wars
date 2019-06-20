@@ -1,19 +1,18 @@
 """
 Todo:
-  - Calculate taking enemy planets every turn using the `attack()` formula.
   - Experiment with horizon in `defend_possible()`.
 
 Todo long term:
-  - Don't give up a valuable planet(s) for attacking a single planet.
-  - Prioritize the battle for a large cluster over a small loner.
-  - Don't expand if front line planet is not defending possible.
-  - Try to stir up complications when losing on time.
+  - Fine tune planet scoring function.
   - Only expand to a planet if defensible.
-  - Defend an expand planet.
+  - Defend an neutral planet that I'm taking.
+
+Todo very long term:
   - Score moves and execute based on score.
+  - Write an actual positioning function (instead of redistribute).
   - Implement minimax search.
 
-current: 3367.78
+current: 3370
 """
 
 from __future__ import division
@@ -28,7 +27,7 @@ except NameError:
 import planet_wars
 import math
 
-__version__ = "0.7.2"
+__version__ = "0.8"
 
 # game configs
 COMPETITION_MODE = True
@@ -39,7 +38,6 @@ SURROUNDING_FACTOR = 0
 LATENCY_FACTOR = 0
 CENTER_FACTOR = 0
 
-TAKING_ENEMY_PLANETS = {}  # {planet.planet_id(): turns_remaining}
 HAVOC_PLANET = [None, 0]  # [planet.planet_id(), turns_to_attack]
 
 
@@ -117,28 +115,6 @@ def get_info(pw):
     for fleet in pw.my_fleets():
         pw.get_planet(fleet.destination_planet()).SHIPPED = True
 
-    # find latency of planets
-    if len(pw.my_planets()) == 1:
-        pw.my_planets()[0].latency = 999999
-    if len(pw.enemy_planets()) == 1:
-        pw.enemy_planets()[0].latency = -999999
-
-    for planet in pw.planets():
-        if hasattr(planet, "latency"):
-            continue
-
-        closest_friend = min(filter(lambda p: p != planet, pw.my_planets()),
-                             key=lambda p: pw.distance(planet.planet_id(), p.planet_id()))
-        closest_enemy = min(filter(lambda p: p != planet, pw.enemy_planets()),
-                            key=lambda p: pw.distance(planet.planet_id(), p.planet_id()))
-
-        planet.latency = pw.distance(closest_enemy.planet_id(), planet.planet_id()) - \
-                         pw.distance(closest_friend.planet_id(), planet.planet_id())
-
-    # global flag for if I'm dying
-    global DYING
-    DYING = False
-
 
 def turn_to_take(pw, my_planet, neutral_planet):
     """
@@ -176,7 +152,12 @@ def expand(pw, expand_limit=99, possible_planets=None):
 
     if possible_planets is None:
         possible_planets = filter(lambda p: not p.SHIPPED and p.latency > 0, pw.neutral_planets())
-    sorted_planets = sorted(possible_planets, key=lambda p: return_ships(pw, p) / (p.num_ships() + 1), reverse=True)
+
+    sorted_planets = sorted(
+        possible_planets,
+        key=lambda p: (score_planet(pw, p) - get_raw_score(p) + return_ships(pw, p)) / (p.num_ships() + 1),
+        reverse=True
+    )
 
     for attack_planet in filter(lambda p: p not in pw.enemy_future_neutrals, sorted_planets[:expand_limit]):
         quickest_planet = min(pw.my_planets(), key=lambda p: turn_to_take(pw, p, attack_planet))
@@ -260,11 +241,6 @@ def defend(pw):
                                          key=lambda p: pw.distance(p.planet_id(), defend_planet.planet_id()))
                     pw.issue_order(defend_planet.planet_id(), retreat_planet.planet_id(), defend_planet.num_ships())
                     defend_planet.remove_ships(defend_planet.num_ships())
-                defend_planet.dying = True
-
-            global DYING
-            DYING = True
-            defend_planet.dying = True
 
 
 def redistribute(pw):
@@ -279,10 +255,10 @@ def redistribute(pw):
         my_future_planets = filter(lambda p: pw.distance(planet.planet_id(), p.planet_id()) >=
                                              pw.my_future_neutrals[p][0],
                                    pw.my_future_neutrals.keys())
-        future_redistribute_planets = {pw.get_planet(p_id): t for p_id, t in TAKING_ENEMY_PLANETS.items()
-                                       if pw.distance(planet.planet_id(), p_id) >= t}
+        future_redistribute_planets = {p: t for p, t in pw.my_future_planets.items()
+                                       if pw.distance(planet.planet_id(), p.planet_id()) >= t}
         redistribute_planets = list(my_other_planets) + list(my_future_planets) + list(future_redistribute_planets)
-        redistribute_planets = filter(lambda p: not p.dying, redistribute_planets)
+        redistribute_planets = filter(lambda p: p not in pw.enemy_future_planets, redistribute_planets)
         closest_planet = min(pw.enemy_planets() + list(pw.enemy_future_neutrals),
                              key=lambda p: pw.distance(p.planet_id(), planet.planet_id(), raw=True))
         for other_planet in sorted(redistribute_planets, key=lambda p: pw.distance(closest_planet.planet_id(),
@@ -336,7 +312,7 @@ def attack(pw):
     :return: None
     """
 
-    enemy_planets = filter(lambda p: p.planet_id() not in TAKING_ENEMY_PLANETS, pw.enemy_planets())
+    enemy_planets = filter(lambda p: p not in pw.my_future_planets, pw.enemy_planets())
     for enemy_planet in sorted(enemy_planets, key=lambda p: score_planet(pw, p), reverse=True):
         for my_planet in sorted(pw.my_planets(), key=lambda p: pw.distance(p.planet_id(), enemy_planet.planet_id())):
             needed_ships = sum(enemy_planet.enemy_maximum_ships[:pw.distance(
@@ -345,13 +321,13 @@ def attack(pw):
                 pw.issue_order(my_planet.planet_id(), enemy_planet.planet_id(), needed_ships + 1)
                 my_planet.remove_ships(needed_ships + 1)
                 enemy_planet.SHIPPED = True
-                TAKING_ENEMY_PLANETS[enemy_planet.planet_id()] = pw.distance(
+                pw.my_future_planets[enemy_planet] = pw.distance(
                     my_planet.planet_id(), enemy_planet.planet_id())
                 break
 
     # for taking enemy neutral planets
     enemy_planets = pw.enemy_future_neutrals
-    for enemy_planet in sorted(filter(lambda p: p.planet_id() not in TAKING_ENEMY_PLANETS, enemy_planets),
+    for enemy_planet in sorted(filter(lambda p: p not in pw.my_future_planets, enemy_planets),
                                key=lambda p: score_planet(pw, p), reverse=True):
         for my_planet in sorted(pw.my_planets(), key=lambda p: pw.distance(p.planet_id(), enemy_planet.planet_id())):
             needed_ships = sum(enemy_planet.enemy_maximum_ships[:pw.distance(
@@ -361,7 +337,7 @@ def attack(pw):
                 pw.issue_order(my_planet.planet_id(), enemy_planet.planet_id(), needed_ships + 1)
                 my_planet.remove_ships(needed_ships + 1)
                 enemy_planet.SHIPPED = True
-                TAKING_ENEMY_PLANETS[enemy_planet.planet_id()] = pw.distance(
+                pw.my_future_planets[enemy_planet] = pw.distance(
                     my_planet.planet_id(), enemy_planet.planet_id())
                 break
 
@@ -383,12 +359,11 @@ def cause_havoc(pw):
     global HAVOC_PLANET
 
     if pw.peaceful and HAVOC_PLANET[0] is None and (pw.time_result <= 0 or not COMPETITION_MODE):
-        for planet in sorted(filter(lambda p: p.planet_id() not in TAKING_ENEMY_PLANETS, pw.enemy_planets()),
+        for planet in sorted(filter(lambda p: p not in pw.my_future_planets, pw.enemy_planets()),
                              key=lambda p: score_planet(pw, p), reverse=True):
             for t in range(round(pw.map_size / 2)):
                 if sum(planet.my_maximum_ships[:t]) > sum(planet.enemy_maximum_ships[:t]):
                     HAVOC_PLANET = [planet.planet_id(), t]
-                    TAKING_ENEMY_PLANETS[planet.planet_id()] = t
                     break
             if HAVOC_PLANET[0] is not None:
                 break
@@ -402,9 +377,6 @@ def cause_havoc(pw):
 
 
 def do_turn(pw):
-    global TAKING_ENEMY_PLANETS
-    TAKING_ENEMY_PLANETS = {p_id: t - 1 for p_id, t in TAKING_ENEMY_PLANETS.items() if t > 1}
-
     global HAVOC_PLANET
     HAVOC_PLANET = [HAVOC_PLANET[0], HAVOC_PLANET[1] - 1] if HAVOC_PLANET[1] > 0 else [None, 0]
 
@@ -432,9 +404,10 @@ def do_turn(pw):
     # first redistribute
     redistribute(pw)
 
-    # expand (if losing)
-    if pw.turn > pw.map_size and pw.chilling and \
-            pw.time_result <= sum(map(lambda p: p.growth_rate(), pw.neutral_planets())):
+    # if pw.turn > pw.map_size and pw.chilling and \
+    #         pw.time_result <= sum(map(lambda p: p.growth_rate(), pw.neutral_planets())):
+    # attempt: more cautious expand (if losing)
+    if pw.turn > pw.map_size and pw.chilling and pw.time_result <= 0:
         for l in range(pw.map_size):
             expand(pw, expand_limit=1, possible_planets=filter(lambda p: p.latency > -l, pw.neutral_planets()))
             for planet in pw.neutral_planets():
@@ -445,9 +418,12 @@ def do_turn(pw):
             break
 
     # expand (if safe)
-    if not DYING and pw.time_result <= sum(map(lambda p: p.growth_rate(), pw.neutral_planets())):
+    if pw.enemy_future_planets == {} and pw.time_result <= sum(map(lambda p: p.growth_rate(), pw.neutral_planets())):
         defend_possible(pw)
         expand(pw)
+    elif pw.chilling and pw.turn > pw.map_size:
+        defend_possible(pw)
+        expand(pw, expand_limit=1)
 
     redistribute(pw)
 
