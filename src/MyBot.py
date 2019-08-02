@@ -12,7 +12,7 @@ Todo very long term:
   - Write an actual positioning function (instead of redistribute).
   - Implement minimax search.
 
-current: 3370
+Rating: 3292.94 / 3319.84
 """
 
 from __future__ import division
