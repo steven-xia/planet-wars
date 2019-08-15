@@ -1,171 +1,202 @@
-import sys
+"""
+file: planet_wars.py
+
+description: contains all `PlanetWars` related code. partially provided by the
+contest organizers but heavily modified.
+"""
 
 import math
+import sys
+import typing
 
 import utils
 
+TOTAL_TURNS: int = 200
 
-TOTAL_TURNS = 200
-
-INFINITY = 1 << 32  # just for utility purposes
+PLANET_LIST = typing.List["Planet"]
+FLEET_LIST = typing.List["Fleet"]
 
 
 class Fleet:
-    def __init__(self, owner, num_ships, source_planet, destination_planet,
-                 total_trip_length, turns_remaining):
-        self._owner = owner
-        self._num_ships = num_ships
-        self._source_planet = source_planet
-        self._destination_planet = destination_planet
-        self._total_trip_length = total_trip_length
-        self._turns_remaining = turns_remaining
+    def __init__(self, owner: int, num_ships: int, source_planet: int,
+                 destination_planet: int, total_trip_length: int,
+                 turns_remaining: int):
+        self._owner: int = owner
+        self._num_ships: int = num_ships
+        self._source_planet: int = source_planet
+        self._destination_planet: int = destination_planet
+        self._total_trip_length: int = total_trip_length
+        self._turns_remaining: int = turns_remaining
 
-    def owner(self):
+    def owner(self) -> int:
         return self._owner
 
-    def num_ships(self):
+    def num_ships(self) -> int:
         return self._num_ships
 
-    def source_planet(self):
+    def source_planet(self) -> int:
         return self._source_planet
 
-    def destination_planet(self):
+    def destination_planet(self) -> int:
         return self._destination_planet
 
-    def total_trip_length(self):
+    def total_trip_length(self) -> int:
         return self._total_trip_length
 
-    def turns_remaining(self):
+    def turns_remaining(self) -> int:
         return self._turns_remaining
 
 
 class Planet:
-    def __init__(self, planet_id, owner, num_ships, growth_rate, x, y):
-        self._planet_id = planet_id
-        self._owner = owner
-        self._num_ships = num_ships
-        self._growth_rate = growth_rate
-        self._x = x
-        self._y = y
+    def __init__(self, planet_id: int, owner: int, num_ships: int,
+                 growth_rate: int, x: float, y: float):
+        self._planet_id: int = planet_id
+        self._owner: int = owner
+        self._num_ships: int = num_ships
+        self._growth_rate: int = growth_rate
+        self._x: float = x
+        self._y: float = y
 
         self.dying = False
 
-    def planet_id(self):
+    def planet_id(self) -> int:
         return self._planet_id
 
-    def owner(self, new_owner=None):
+    def owner(self, new_owner: typing.Optional[int] = None) -> typing.Optional[int]:
         if new_owner is None:
             return self._owner
         self._owner = new_owner
 
-    def num_ships(self, new_num_ships=None):
+    def num_ships(self, new_num_ships: typing.Optional[int] = None) -> typing.Optional[int]:
         if new_num_ships is None:
             return self._num_ships
         self._num_ships = new_num_ships
 
-    def growth_rate(self):
+    def growth_rate(self) -> int:
         return self._growth_rate
 
-    def x(self):
+    def x(self) -> float:
         return self._x
 
-    def y(self):
+    def y(self) -> float:
         return self._y
 
-    def add_ships(self, amount):
+    def add_ships(self, amount: int) -> None:
         self._num_ships += amount
 
-    def remove_ships(self, amount):
+    def remove_ships(self, amount: int) -> None:
         self._num_ships -= amount
 
 
 class PlanetWars:
     turn = 0
+    _distance_cache = {}
 
     def __init__(self):
-        self._planets = []
-        self._fleets = []
+        self._planets: PLANET_LIST = []
+        self._fleets: FLEET_LIST = []
 
-        self._planet_id_counter = 0
+        self._planet_id_counter: int = 0
         self._temporary_fleets = {}
 
         self._issued_orders = {}
-        self._distance_cache = {}
 
-    def num_planets(self):
+    def num_planets(self) -> int:
         return len(self._planets)
 
-    def get_planet(self, planet_id):
+    def get_planet(self, planet_id: int) -> Planet:
         return self._planets[planet_id]
 
-    def num_fleets(self):
+    def num_fleets(self) -> int:
         return len(self._fleets)
 
-    def get_fleet(self, fleet_id):
+    def get_fleet(self, fleet_id: int) -> Fleet:
         return self._fleets[fleet_id]
 
-    def planets(self):
+    def planets(self) -> PLANET_LIST:
         return self._planets
 
-    def my_planets(self):
+    def my_planets(self) -> PLANET_LIST:
         return list(filter(lambda p: p.owner() == 1, self._planets))
 
-    def neutral_planets(self):
+    def neutral_planets(self) -> PLANET_LIST:
         return list(filter(lambda p: p.owner() == 0, self._planets))
 
-    def enemy_planets(self):
+    def enemy_planets(self) -> PLANET_LIST:
         return list(filter(lambda p: p.owner() == 2, self._planets))
 
-    def not_my_planets(self):
+    def not_my_planets(self) -> PLANET_LIST:
         return list(filter(lambda p: p.owner() != 1, self._planets))
 
-    def fleets(self):
+    def fleets(self) -> FLEET_LIST:
         return self._fleets
 
-    def my_fleets(self):
+    def my_fleets(self) -> FLEET_LIST:
         return list(filter(lambda f: f.owner() == 1, self._fleets))
 
-    def enemy_fleets(self):
+    def enemy_fleets(self) -> FLEET_LIST:
         return list(filter(lambda f: f.owner() == 2, self._fleets))
 
-    def to_string(self):
-        s = ""
-        for p in self._planets:
-            s += "P {} {} {} {} {}\n".format(p.x(), p.y(), p.owner(), p.num_ships(), p.growth_rate())
-        for f in self._fleets:
-            s += "F {} {} {} {} {} {}\n".format(f.owner(), f.num_ships(), f.source_planet(), f.destination_planet(),
-                                                f.total_trip_length(), f.turns_remaining())
-        return s
+    def to_string(self) -> str:
+        string = ""
+        for planet in self._planets:
+            string += "P {} {} {} {} {}\n".format(
+                planet.x(),
+                planet.y(),
+                planet.owner(),
+                planet.num_ships(),
+                planet.growth_rate()
+            )
+        for fleet in self._fleets:
+            string += "F {} {} {} {} {} {}\n".format(
+                fleet.owner(),
+                fleet.num_ships(),
+                fleet.source_planet(),
+                fleet.destination_planet(),
+                fleet.total_trip_length(),
+                fleet.turns_remaining()
+            )
+        return string
 
-    def distance(self, source_planet, destination_planet, raw=False):
+    def distance(self, source_planet: int, destination_planet: int, raw: bool = False) -> typing.Union[int, float]:
         try:
-            return self._distance_cache[tuple(sorted((source_planet, destination_planet)))][raw]
+            return PlanetWars._distance_cache[tuple(sorted((source_planet, destination_planet)))][raw]
         except KeyError:
             source = self._planets[source_planet]
             destination = self._planets[destination_planet]
             raw_distance = utils.distance(source.x(), source.y(), destination.x(), destination.y())
             distance = int(math.ceil(raw_distance))
 
-            self._distance_cache[tuple(sorted((source_planet, destination_planet)))] = (distance, raw_distance)
+            PlanetWars._distance_cache[tuple(sorted((source_planet, destination_planet)))] = (distance, raw_distance)
             return raw_distance if raw else distance
 
-    def issue_order(self, source_planet, destination_planet, num_ships):
+    def issue_order(self, source_planet: int, destination_planet: int, num_ships: int, proxy: bool = False) -> None:
         if num_ships == 0 or source_planet == destination_planet:
             return
 
         key = (source_planet, destination_planet)
+
+        if proxy:
+            initial_distance = self.distance(source_planet, destination_planet)
+            other_planets = list(filter(lambda p: p.planet_id() not in key and
+                                                  self.distance(source_planet, p.planet_id()) +
+                                                  self.distance(p.planet_id(), destination_planet) <= initial_distance,
+                                        self.my_planets()))
+            if other_planets:
+                other_planets = min(other_planets, key=lambda p: self.distance(source_planet, p.planet_id()))
+                key = (source_planet, other_planets[0].planet_id())
 
         try:
             self._issued_orders[key] += num_ships
         except KeyError:
             self._issued_orders[key] = num_ships
 
-    def is_alive(self, player_id):
+    def is_alive(self, player_id: int) -> bool:
         return any(map(lambda p: p.owner() == player_id, self._planets)) or \
                any(map(lambda f: f.owner() == player_id, self._fleets))
 
-    def parse_game_state(self, s):
-        lines = s.split("\n")
+    def parse_game_state(self, input_string: str) -> bool:
+        lines = input_string.split("\n")
 
         for line in lines:
             line = line.split("#")[0]  # remove comments
@@ -253,7 +284,7 @@ class PlanetWars:
                         (destination_planet in self.my_future_neutrals and
                          self.my_future_neutrals[destination_planet][0] < my_fleet.turns_remaining()):
                     distance = my_fleet.turns_remaining() + \
-                        self.distance(my_fleet.destination_planet(), planet.planet_id()) - 1
+                               self.distance(my_fleet.destination_planet(), planet.planet_id()) - 1
                     my_arriving_ships[distance] += my_fleet.num_ships()
             for my_planet, (turns_to_take, excess_ships) in self.my_future_neutrals.items():
                 distance = turns_to_take + self.distance(my_planet.planet_id(), planet.planet_id()) - 1
@@ -274,7 +305,7 @@ class PlanetWars:
                         (destination_planet in self.enemy_future_neutrals and
                          self.enemy_future_neutrals[destination_planet][0] < enemy_fleet.turns_remaining()):
                     distance = enemy_fleet.turns_remaining() + \
-                        self.distance(enemy_fleet.destination_planet(), planet.planet_id()) - 1
+                               self.distance(enemy_fleet.destination_planet(), planet.planet_id()) - 1
                     enemy_arriving_ships[distance] += enemy_fleet.num_ships()
             for enemy_planet, (turns_to_take, excess_ships) in self.enemy_future_neutrals.items():
                 distance = turns_to_take + self.distance(enemy_planet.planet_id(), planet.planet_id()) - 1
@@ -332,10 +363,10 @@ class PlanetWars:
                 planet.latency = 0
         elif my_planets == {}:
             for planet in self.planets():
-                planet.latency = -INFINITY
+                planet.latency = -utils.INFINITY
         elif enemy_planets == {}:
             for planet in self.planets():
-                planet.latency = INFINITY
+                planet.latency = utils.INFINITY
         else:
             for planet in self.planets():
                 my_closest = min(map(lambda kv: self.distance(planet.planet_id(), kv[0].planet_id()) + kv[1],
@@ -360,11 +391,11 @@ class PlanetWars:
         self._get_latencies()
 
         my_final_ships = self.my_total_ships + self.turns_remaining * self.my_growth_rate + \
-            sum(e + (self.turns_remaining - t) * p.growth_rate() - p.num_ships()
-                for p, (t, e) in self.my_future_neutrals.items())
+                         sum(e + (self.turns_remaining - t) * p.growth_rate() - p.num_ships()
+                             for p, (t, e) in self.my_future_neutrals.items())
         enemy_final_ships = self.enemy_total_ships + self.turns_remaining * self.enemy_growth_rate + \
-            sum(e + (self.turns_remaining - t) * p.growth_rate() - p.num_ships()
-                for p, (t, e) in self.enemy_future_neutrals.items())
+                            sum(e + (self.turns_remaining - t) * p.growth_rate() - p.num_ships()
+                                for p, (t, e) in self.enemy_future_neutrals.items())
         self.time_result = my_final_ships - enemy_final_ships
 
         for fleet in self.fleets():
@@ -393,7 +424,7 @@ class PlanetWars:
 
         self._get_info()
 
-    def finish_turn(self):
+    def finish_turn(self) -> None:
         PlanetWars.turn += 1
 
         for (source_planet, destination_planet), num_ships in self._issued_orders.items():
