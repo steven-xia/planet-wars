@@ -16,6 +16,8 @@ TOTAL_TURNS: int = 200
 PLANET_LIST = typing.List["Planet"]
 FLEET_LIST = typing.List["Fleet"]
 
+SHIPS_LIST = typing.List[int]
+
 
 class Fleet:
     def __init__(self, owner: int, num_ships: int, source_planet: int,
@@ -58,6 +60,13 @@ class Planet:
         self._y: float = y
 
         self.dying = False
+
+        # to be defined later in `PlanetWars`
+        self.my_maximum_ships: SHIPS_LIST = []
+        self.enemy_maximum_ships: SHIPS_LIST = []
+        self.my_arriving_ships: SHIPS_LIST = []
+        self.enemy_arriving_ships: SHIPS_LIST = []
+        self.latency = 0
 
     def planet_id(self) -> int:
         return self._planet_id
@@ -170,7 +179,7 @@ class PlanetWars:
             PlanetWars._distance_cache[tuple(sorted((source_planet, destination_planet)))] = (distance, raw_distance)
             return raw_distance if raw else distance
 
-    def issue_order(self, source_planet: int, destination_planet: int, num_ships: int, proxy: bool = False) -> None:
+    def issue_order(self, source_planet: int, destination_planet: int, num_ships: int, proxy: bool = True) -> None:
         if num_ships == 0 or source_planet == destination_planet:
             return
 
@@ -183,8 +192,8 @@ class PlanetWars:
                                                   self.distance(p.planet_id(), destination_planet) <= initial_distance,
                                         self.my_planets()))
             if other_planets:
-                other_planets = min(other_planets, key=lambda p: self.distance(source_planet, p.planet_id()))
-                key = (source_planet, other_planets[0].planet_id())
+                other_planet = min(other_planets, key=lambda p: self.distance(source_planet, p.planet_id()))
+                key = (source_planet, other_planet.planet_id())
 
         try:
             self._issued_orders[key] += num_ships

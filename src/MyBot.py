@@ -16,7 +16,7 @@ Todo very long term:
   - Write an actual positioning function (instead of redistribute).
   - Implement minimax search.
 
-Rating: 3370.83
+Rating: 3386.66
 """
 
 from __future__ import division
@@ -58,7 +58,7 @@ def pythag(coord1, coord2):
     return math.sqrt((coord1[0] - coord2[0]) ** 2 + ((coord1[1] - coord2[1]) ** 2))
 
 
-def get_raw_score(p):
+def get_raw_score(p: planet_wars.Planet):
     """
     Returns the basic score of the planet.
     :param p: `Planet` object
@@ -68,7 +68,7 @@ def get_raw_score(p):
     return p.growth_rate()
 
 
-def score_planet(pw, p):
+def score_planet(pw: planet_wars.PlanetWars, p: planet_wars.Planet):
     """
     Function to give a planet a score based on many factors.
     :param pw: `PlanetWars` object
@@ -100,7 +100,7 @@ def score_planet(pw, p):
     return score
 
 
-def get_info(pw):
+def get_info(pw: planet_wars.PlanetWars):
     """
     Gets basic info about the map. Saves everything in global variables.
     :param pw: `PlanetWars` object
@@ -114,15 +114,8 @@ def get_info(pw):
     ENEMY_PLANETS_CENTER = sum(map(lambda p: p.x(), pw.enemy_planets())) / len(pw.enemy_planets()), \
                            sum(map(lambda p: p.y(), pw.enemy_planets())) / len(pw.enemy_planets())
 
-    # find which planets were "shipped"
-    for planet in pw.planets():
-        planet.SHIPPED = False
 
-    for fleet in pw.my_fleets():
-        pw.get_planet(fleet.destination_planet()).SHIPPED = True
-
-
-def furthest_meaningful_planet(pw, planet, owner):
+def furthest_meaningful_planet(pw: planet_wars.PlanetWars, planet: planet_wars.Planet, owner: int):
     planets = tuple(filter(lambda p: p.owner() == owner, pw.planets()))
     fleets = tuple(filter(lambda f: f.owner() == owner, pw.fleets()))
 
@@ -136,7 +129,7 @@ def furthest_meaningful_planet(pw, planet, owner):
     return furthest_distance
 
 
-def turn_to_take(pw, my_planet, neutral_planet):
+def turn_to_take(pw: planet_wars.PlanetWars, my_planet: planet_wars.Planet, neutral_planet: planet_wars.Planet):
     """
     Finds the minimum turns to take `neutral_planet` with `my_planet`.
     :param pw: `PlanetWars` object
@@ -159,16 +152,16 @@ def turn_to_take(pw, my_planet, neutral_planet):
         return distance + t
 
 
-def return_ships(pw, planet):
+def return_ships(pw: planet_wars.PlanetWars, planet: planet_wars.Planet):
     quickest_planet = min(pw.my_planets(), key=lambda p: turn_to_take(pw, p, planet))
     quickest_turns = turn_to_take(pw, quickest_planet, planet)
     return planet.growth_rate() * (pw.map_size / 2 - quickest_turns)
 
 
-def defensible(pw, planet):
+def defensible(pw: planet_wars.PlanetWars, planet: planet_wars.Planet):
     quickest_planet = min(pw.my_planets(), key=lambda p: turn_to_take(pw, p, planet))
     quickest_turns = turn_to_take(pw, quickest_planet, planet)
-    for t in range(quickest_turns + 1, furthest_meaningful_planet(pw, planet, 2) + 1):
+    for t in range(quickest_turns + 1, furthest_meaningful_planet(pw, planet, 2) + 2):
         my_maximum_ships = max(0, sum(planet.my_maximum_ships[:t - 1]) - planet.num_ships() +
                                planet.growth_rate() * (t - quickest_turns))
         enemy_maximum_ships = sum(planet.enemy_maximum_ships[:t])
@@ -177,7 +170,7 @@ def defensible(pw, planet):
     return True
 
 
-def expand(pw, expand_limit=99, possible_planets=None, reckless=False):
+def expand(pw: planet_wars.PlanetWars, expand_limit: int = 99, possible_planets=None, reckless: bool = False):
     """
     Expand to neutral planets with all ships. Designed to come after `defend_possible()` because this doesn't account
     for possible attacks from the opponent.
@@ -196,7 +189,8 @@ def expand(pw, expand_limit=99, possible_planets=None, reckless=False):
     possible_planets = filter(lambda p: p not in pw.enemy_future_neutrals, possible_planets)
     sorted_planets = sorted(
         possible_planets,
-        key=lambda p: (score_planet(pw, p) - get_raw_score(p) + return_ships(pw, p)) / (p.num_ships() + 1),
+        key=lambda p: (score_planet(pw, p) - get_raw_score(p) + return_ships(pw, p) / (pw.map_size / 2)) /
+                      (p.num_ships() + 1),
         reverse=True
     )
 
@@ -227,7 +221,6 @@ def expand(pw, expand_limit=99, possible_planets=None, reckless=False):
                 quickest_planet.remove_ships(attack_planet.num_ships() + 1)
                 pw.my_future_neutrals[attack_planet] = (pw.distance(quickest_planet.planet_id(),
                                                                     attack_planet.planet_id()), 1)
-                attack_planet.SHIPPED = True
 
                 for planet in pw.planets():
                     planet.my_maximum_ships[pw.distance(quickest_planet.planet_id(), planet.planet_id()) - 1] -= \
@@ -303,10 +296,10 @@ def defend(pw):
             # retreat from dying planet
             if first_oof == 1:
                 not_death_planets = list(filter(lambda p: p not in needs_defending_planets, pw.my_planets()))
-                not_death_planets += list(filter(lambda p: pw.distance(p.planet_id(), defend_planet.planet_id()) <
-                                                 pw.my_future_neutrals[p][0], pw.my_future_neutrals))
-                not_death_planets += list(filter(lambda p: pw.distance(p.planet_id(), defend_planet.planet_id()) <
-                                                 pw.my_future_planets[p], pw.my_future_planets))
+                not_death_planets += list(filter(lambda p: pw.distance(p.planet_id(), defend_planet.planet_id()) >=
+                                                           pw.my_future_neutrals[p][0], pw.my_future_neutrals))
+                not_death_planets += list(filter(lambda p: pw.distance(p.planet_id(), defend_planet.planet_id()) >=
+                                                           pw.my_future_planets[p], pw.my_future_planets))
                 if len(not_death_planets) > 0:
                     retreat_planet = min(not_death_planets,
                                          key=lambda p: pw.distance(p.planet_id(), defend_planet.planet_id()))
@@ -370,8 +363,8 @@ def defend_possible(pw):
 
     for my_planet in pw.my_planets():
         lowest_ships = my_planet.num_ships()
-        for turn in range(1, furthest_meaningful_planet(pw, my_planet, 2) + 1):
-            lowest_ships = min(sum(my_planet.my_maximum_ships[:turn]) - sum(my_planet.enemy_maximum_ships[:turn]),
+        for turn in range(2, furthest_meaningful_planet(pw, my_planet, 2) + 1):
+            lowest_ships = min(sum(my_planet.my_maximum_ships[:turn - 1]) - sum(my_planet.enemy_maximum_ships[:turn]),
                                lowest_ships)
         my_planet.num_ships(max(lowest_ships, 0))
 
@@ -393,7 +386,6 @@ def attack(pw):
             if my_planet.num_ships() > needed_ships:
                 pw.issue_order(my_planet.planet_id(), enemy_planet.planet_id(), needed_ships + 1)
                 my_planet.remove_ships(needed_ships + 1)
-                enemy_planet.SHIPPED = True
                 pw.my_future_planets[enemy_planet] = pw.distance(
                     my_planet.planet_id(), enemy_planet.planet_id())
                 break
@@ -409,7 +401,6 @@ def attack(pw):
                     enemy_planets[enemy_planet][0] < pw.distance(my_planet.planet_id(), enemy_planet.planet_id()):
                 pw.issue_order(my_planet.planet_id(), enemy_planet.planet_id(), needed_ships + 1)
                 my_planet.remove_ships(needed_ships + 1)
-                enemy_planet.SHIPPED = True
                 pw.my_future_planets[enemy_planet] = pw.distance(
                     my_planet.planet_id(), enemy_planet.planet_id())
                 break
@@ -423,7 +414,6 @@ def simple_take(pw, take_planet):
         if planet.num_ships() >= take_ships:
             pw.issue_order(planet.planet_id(), take_planet.planet_id(), take_ships)
             planet.remove_ships(take_ships)
-            take_planet.SHIPPED = True
             return True
     else:
         return False
@@ -432,20 +422,37 @@ def simple_take(pw, take_planet):
 def cause_havoc(pw):
     global HAVOC_PLANET
 
-    if pw.peaceful and HAVOC_PLANET[0] is None and (pw.time_result <= -ACCEPT_DRAWS or not COMPETITION_MODE):
+    if HAVOC_PLANET[0] is not None:
+        havoc_object = pw.get_planet(HAVOC_PLANET[0])
+        if sum(havoc_object.my_arriving_ships[:HAVOC_PLANET[1]]) > \
+                sum(havoc_object.enemy_maximum_ships[:HAVOC_PLANET[1]]):
+            HAVOC_PLANET = [None, 0]
+        # elif sum(havoc_object.my_maximum_ships[:HAVOC_PLANET[1]]) <= \
+        #         sum(havoc_object.enemy_maximum_ships[:HAVOC_PLANET[1]]):
+        #     HAVOC_PLANET = [None, 0]
+
+    if HAVOC_PLANET[0] is None and pw.peaceful:
         for planet in sorted(filter(lambda p: p not in pw.my_future_planets, pw.enemy_planets()),
                              key=lambda p: score_planet(pw, p), reverse=True):
             for t in range(furthest_meaningful_planet(pw, planet, 1) + 1):
                 if sum(planet.my_maximum_ships[:t]) > sum(planet.enemy_maximum_ships[:t]):
                     HAVOC_PLANET = [planet.planet_id(), t]
                     break
-            if HAVOC_PLANET[0] is not None:
-                break
+            else:
+                continue
+            break
 
     if HAVOC_PLANET[0] is not None:
+        targeted_planet = pw.get_planet(HAVOC_PLANET[0])
+        lacking_ships = sum(targeted_planet.enemy_maximum_ships[:HAVOC_PLANET[1]]) - \
+            sum(targeted_planet.my_arriving_ships[:HAVOC_PLANET[1]]) + 1
         for planet in filter(lambda p: pw.distance(p.planet_id(), HAVOC_PLANET[0]) == HAVOC_PLANET[1], pw.my_planets()):
-            pw.issue_order(planet.planet_id(), HAVOC_PLANET[0], planet.num_ships())
-            planet.remove_ships(planet.num_ships())
+            if lacking_ships <= 0:
+                return
+            send_ships = min(lacking_ships, planet.num_ships())
+            pw.issue_order(planet.planet_id(), HAVOC_PLANET[0], send_ships)
+            planet.remove_ships(send_ships)
+            lacking_ships -= send_ships
         for planet in filter(lambda p: pw.distance(p.planet_id(), HAVOC_PLANET[0]) < HAVOC_PLANET[1], pw.my_planets()):
             planet.num_ships(0)
 
@@ -467,12 +474,13 @@ def do_turn(pw):
     get_info(pw)
 
     # competition_mode ;)
-    if COMPETITION_MODE and pw.chilling and pw.time_result > -ACCEPT_DRAWS:
+    if COMPETITION_MODE and pw.peaceful and pw.time_result > -ACCEPT_DRAWS:
         redistribute(pw)
         return
 
     # cause havoc!
-    cause_havoc(pw)
+    if pw.time_result <= -ACCEPT_DRAWS or not COMPETITION_MODE:
+        cause_havoc(pw)
 
     # defend
     defend(pw)
@@ -488,12 +496,8 @@ def do_turn(pw):
         for l in range(pw.map_size):
             expand(pw, expand_limit=1, possible_planets=filter(lambda p: p.latency > -l, pw.neutral_planets()),
                    reckless=True)
-            for planet in pw.neutral_planets():
-                if planet.SHIPPED:
-                    break
-            else:
-                continue
-            break
+            if pw.my_future_neutrals != {}:
+                break
 
     # expand (if safe)
     if pw.enemy_future_planets == {} and pw.time_result <= sum(map(lambda p: p.growth_rate(), pw.neutral_planets())):
@@ -505,10 +509,13 @@ def do_turn(pw):
 
     redistribute(pw)
 
-    # trade down
-    if pw.chilling and pw.my_total_ships > pw.enemy_total_ships + 1000:
-        for planet in sorted(filter(lambda p: not p.SHIPPED, pw.enemy_planets()), key=lambda p: p.num_ships()):
-            simple_take(pw, planet)
+    # # trade down
+    # if pw.turn > pw.distance(1, 2) and pw.time_result > 0 and \
+    #         pw.enemy_future_neutrals == pw.enemy_future_planets == {} and \
+    #         pw.my_total_ships - sum(map(lambda p: p.num_ships(), pw.my_future_neutrals)) > \
+    #         pw.enemy_total_ships + pw.total_growth:
+    #     for planet in sorted(filter(lambda p: not any(p.my_arriving_ships), pw.enemy_planets()), key=lambda p: p.num_ships()):
+    #         simple_take(pw, planet)
 
 
 def main():

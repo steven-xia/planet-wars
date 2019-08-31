@@ -10,10 +10,10 @@ import sys
 
 
 # set a large number for utility purposes
-INFINITY = 1 << 32
+INFINITY: int = 1 << 32
 
 
-def distance(x1, y1, x2, y2):
+def distance(x1: float, y1: float, x2: float, y2: float) -> float:
     """
     find the euclidean distance between two points (x1, y1) and (x2, y2).
     :param x1: `float` x-value of first point
@@ -26,7 +26,7 @@ def distance(x1, y1, x2, y2):
     return math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
 
 
-def error_print(*args, **kwargs):
+def error_print(*args, **kwargs) -> None:
     """
     `print()` wrapper to print to `sys.stderr` for logging. the game engine
     captures all stdout but allows stderr to pass through.
