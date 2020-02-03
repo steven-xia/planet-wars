@@ -16,7 +16,7 @@ Todo very long term:
   - Write an actual positioning function (instead of redistribute).
   - Implement minimax search.
 
-Rating: 3386.66
+Rating: 3402.94
 """
 
 from __future__ import division
@@ -327,6 +327,10 @@ def redistribute(pw):
                              key=lambda p: pw.distance(p.planet_id(), planet.planet_id(), raw=True))
         for other_planet in sorted(redistribute_planets, key=lambda p: pw.distance(closest_planet.planet_id(),
                                                                                    p.planet_id(), raw=True)):
+            if pw.distance(planet.planet_id(), other_planet.planet_id()) > \
+                    pw.distance(planet.planet_id(), closest_planet.planet_id()):
+                continue
+
             if pw.distance(planet.planet_id(), closest_planet.planet_id(), raw=True) <= \
                     pw.distance(other_planet.planet_id(), closest_planet.planet_id(), raw=True):
                 break
