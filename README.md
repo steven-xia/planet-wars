@@ -1,2 +1,2 @@
 # planet-wars
-My bot for playing Planet Wars (from the Google AI Challenge 2010).
+A post-competition submission for Planet Wars (Google AI Challenge 2010/Fall). 
